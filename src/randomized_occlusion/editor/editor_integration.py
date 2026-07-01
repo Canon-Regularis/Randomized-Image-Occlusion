@@ -57,17 +57,34 @@ class EditorIntegration:
         gui_hooks.editor_did_init_buttons.append(self._on_init_buttons)
         gui_hooks.editor_did_load_note.append(self._on_load_note)
         gui_hooks.add_cards_did_add_note.append(self._on_note_added)
+        # Backup trigger: catch the Add window's very first note in case
+        # editor_did_load_note timing differs across Anki versions.
+        gui_hooks.add_cards_did_init.append(self._on_add_cards_init)
 
     # -- predicates ------------------------------------------------------------
 
     def _is_add_editor(self, editor: Any) -> bool:
-        """True only for the editor embedded in Anki's Add window."""
+        """True for the editor embedded in Anki's Add window.
+
+        Anki has changed how "add mode" is exposed over releases, so check every
+        signal — missing all of them would silently disable the whole feature.
+        """
+        # Newer Anki: an EditorMode enum on the editor.
+        mode = getattr(editor, "editorMode", None)
+        if getattr(mode, "name", "") == "ADD_CARDS":
+            return True
+        # Older Anki: a plain addMode flag.
+        if getattr(editor, "addMode", False):
+            return True
+        # Structural fallback: the editor's window is the Add dialog.
         try:
             from aqt.addcards import AddCards
 
-            return isinstance(getattr(editor, "parentWindow", None), AddCards)
+            if isinstance(getattr(editor, "parentWindow", None), AddCards):
+                return True
         except Exception:
-            return False
+            pass
+        return False
 
     def _is_our_note(self, note: Any) -> bool:
         if note is None:
@@ -114,6 +131,12 @@ class EditorIntegration:
         # The Add window reuses (and clears) this note object for the next card;
         # forget it so that fresh, empty note auto-opens the canvas again.
         self._forget_handled(note)
+
+    def _on_add_cards_init(self, addcards: Any) -> None:
+        editor = getattr(addcards, "editor", None)
+        if editor is not None:
+            # Route through the normal path; it no-ops until the note is ready.
+            self._on_load_note(editor)
 
     # -- "already handled this note" bookkeeping -------------------------------
 
