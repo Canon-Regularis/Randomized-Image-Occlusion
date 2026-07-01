@@ -12,13 +12,9 @@ from typing import Any
 from aqt import gui_hooks, mw
 from aqt.qt import QAction, qconnect
 
-from .collection.gateways import AnkiModelGateway
 from .config.config_service import AnkiConfigProvider, ConfigService
 from .editor.launcher import EditorLauncher
-from .notetype.installer import NoteTypeInstaller
-from .notetype.spec import DEFAULT_SPEC
-from .notetype.templates import TemplateAssembler
-from .resources import read_web
+from .notetype.factory import build_installer
 
 _MENU_LABEL = "Randomized Image Occlusion…"
 
@@ -57,9 +53,7 @@ def _install_notetype(config_service: ConfigService) -> None:
     col = mw.col
     if col is None:
         return
-    assembler = TemplateAssembler(DEFAULT_SPEC, read_web("review/render.js"))
-    installer = NoteTypeInstaller(AnkiModelGateway(col), assembler, DEFAULT_SPEC)
     try:
-        installer.ensure_installed(config_service.render_config())
+        build_installer(col).ensure_installed(config_service.render_config())
     except Exception as exc:  # pragma: no cover - defensive, never block startup
         print(f"[Randomized Image Occlusion] note-type install failed: {exc!r}")

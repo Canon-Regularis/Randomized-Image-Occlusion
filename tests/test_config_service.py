@@ -30,3 +30,14 @@ def test_set_deck_persists_and_preserves_other_keys():
 def test_render_config_is_built_from_effective_config():
     service = ConfigService(InMemoryConfigProvider({"min_arrow_fraction": 0.4}))
     assert service.render_config().min_arrow_fraction == 0.4
+
+
+def test_editor_defaults_come_from_config():
+    from randomized_occlusion.domain.card_options import CardMode, Direction
+
+    service = ConfigService(
+        InMemoryConfigProvider({"card_mode": "single", "direction": "both"})
+    )
+    defaults = service.editor_defaults()
+    assert defaults.mode is CardMode.SINGLE
+    assert defaults.direction is Direction.BOTH

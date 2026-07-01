@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import base64
 import json
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
+from .card_options import CardMode, CardOptions, Direction
+from .codec import encode_json_b64
 from .structure import Structure
+
+__all__ = ["StructureSet"]
 
 
 def _cloze_escape(label: str) -> str:
@@ -69,26 +72,10 @@ class StructureSet:
 
     # -- serialization ---------------------------------------------------------
 
-    def to_json(self) -> str:
-        """Compact JSON array of structures, ordered by ordinal."""
-        return json.dumps(
-            [s.to_dict() for s in self.ordered],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-
-    def to_base64(self) -> str:
-        """Base64 of the UTF-8 JSON payload.
-
-        The reviewer reads this out of a field and ``JSON.parse``s it. Encoding
-        as base64 sidesteps every HTML/`</script>`-injection and quoting hazard
-        that arbitrary label text could otherwise introduce into the template.
-        """
-        return base64.b64encode(self.to_json().encode("utf-8")).decode("ascii")
-
     @classmethod
     def from_json(cls, payload: str) -> StructureSet:
-        """Deserialize a payload produced by :meth:`to_json`.
+        """Deserialize a JSON array of structure dicts (the payload's
+        ``structures``).
 
         Ordinals must already be contiguous ``1..N``. Unlike
         :meth:`from_unordered`, this does *not* renumber: ordinals map to Anki
@@ -98,14 +85,9 @@ class StructureSet:
         data = json.loads(payload)
         return cls(structures=tuple(Structure.from_dict(item) for item in data))
 
-    @classmethod
-    def from_base64(cls, payload: str) -> StructureSet:
-        decoded = base64.b64decode(payload.encode("ascii")).decode("utf-8")
-        return cls.from_json(decoded)
-
     # -- anki helpers ----------------------------------------------------------
 
-    def cloze_field(self, direction: str = "forward", mode: str = "multi") -> str:
+    def cloze_field(self, options: CardOptions) -> str:
         """The contents of the hidden cloze field that generates the cards.
 
         Each ``{{cN::...}}`` makes Anki emit one card; the renderer reads the
@@ -114,16 +96,15 @@ class StructureSet:
         (``{{type:cloze:...}}``) can grade what the learner types, and labels are
         escaped so cloze syntax can't break the field.
 
-        In ``mode == "single"`` exactly one card is generated (one cloze); the
-        renderer cycles through all structures on that single card, so the cloze
-        answer content is inert. Otherwise, for ``direction == "both"`` each
-        structure gets two consecutive ordinals (a forward and a reverse card);
-        otherwise one each.
+        In single mode exactly one card is generated (one cloze); the renderer
+        cycles through all structures on that single card, so the cloze answer
+        content is inert. Otherwise, for ``Direction.BOTH`` each structure gets
+        two consecutive ordinals (a forward and a reverse card); otherwise one.
         """
-        if mode == "single":
+        if options.mode == CardMode.SINGLE:
             return "{{c1::.}}"
         ordered = self.ordered
-        if direction == "both":
+        if options.direction == Direction.BOTH:
             parts = []
             for index, structure in enumerate(ordered):
                 answer = _cloze_escape(structure.label)
@@ -134,30 +115,19 @@ class StructureSet:
             f"{{{{c{s.ordinal}::{_cloze_escape(s.label)}}}}}" for s in ordered
         )
 
-    def to_payload_base64(
-        self,
-        direction: str = "forward",
-        context_labels: bool = False,
-        mode: str = "multi",
-    ) -> str:
+    def to_payload_base64(self, options: CardOptions) -> str:
         """Base64 of the per-note payload the renderer reads.
 
         Carries the per-note render settings (mode, direction, context-labels)
         with every structure, so a note renders correctly regardless of the
-        current global config (self-describing).
+        current global config (self-describing). Enum values are serialised via
+        ``.value`` so the payload stays byte-identical to the legacy strings.
         """
         payload = {
             "v": 2,
-            "mode": mode,
-            "direction": direction,
-            "contextLabels": context_labels,
+            "mode": options.mode.value,
+            "direction": options.direction.value,
+            "contextLabels": options.context_labels,
             "structures": [s.to_dict() for s in self.ordered],
         }
-        return base64.b64encode(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
-                "utf-8"
-            )
-        ).decode("ascii")
-
-    def labels(self) -> Iterable[str]:
-        return (s.label for s in self.ordered)
+        return encode_json_b64(payload)

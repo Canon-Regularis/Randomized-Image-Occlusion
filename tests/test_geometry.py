@@ -22,7 +22,7 @@ def test_rejects_nan():
 
 def test_is_immutable():
     point = NormalizedPoint(0.2, 0.3)
-    with pytest.raises(Exception):
+    with pytest.raises(AttributeError):  # frozen dataclass
         point.x = 0.9  # type: ignore[misc]
 
 

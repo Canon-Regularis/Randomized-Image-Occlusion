@@ -11,14 +11,15 @@ template code) keeps the JS/CSS contract in one auditable place.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from .defaults import DEFAULT_CONFIG
+
+__all__ = ["RenderConfig"]
 
 # Strings a user might type into config.json that should read as ``False``.
 _FALSEY_STRINGS = {"false", "0", "no", "off", "", "none"}
@@ -70,21 +71,21 @@ def _as_color(value: Any, default: str) -> str:
     return text if _COLOR_RE.match(text) else default
 
 
-def _as_choice(value: Any, default: str, allowed: frozenset[str]) -> str:
-    text = "" if value is None else str(value).strip().lower()
-    return text if text in allowed else default
-
-
 @dataclass(frozen=True, slots=True)
 class RenderConfig:
+    """The config that actually shapes the installed template/CSS.
+
+    Per-note choices (direction/interaction/mode) live on
+    :class:`~randomized_occlusion.domain.card_options.CardOptions`, not here —
+    this object only carries values baked into the note type's HTML/CSS/JS.
+    """
+
     min_arrow_fraction: float
     show_target_dot: bool
     prompt_text: str
     max_placement_attempts: int
     show_decoy_dots: bool
     show_context_labels: bool
-    interaction: str
-    direction: str
     accent_color: str
     box_fill: str
     box_text_color: str
@@ -124,16 +125,6 @@ class RenderConfig:
             show_context_labels=_as_bool(
                 get("show_context_labels"), DEFAULT_CONFIG["show_context_labels"]
             ),
-            interaction=_as_choice(
-                get("interaction"),
-                DEFAULT_CONFIG["interaction"],
-                frozenset({"reveal", "type"}),
-            ),
-            direction=_as_choice(
-                get("direction"),
-                DEFAULT_CONFIG["direction"],
-                frozenset({"forward", "reverse", "both"}),
-            ),
             accent_color=_as_color(get("accent_color"), DEFAULT_CONFIG["accent_color"]),
             box_fill=_as_color(get("box_fill"), DEFAULT_CONFIG["box_fill"]),
             box_text_color=_as_color(
@@ -144,21 +135,19 @@ class RenderConfig:
             ),
         )
 
-    def behaviour_json(self) -> str:
-        """Compact JSON read by ``render.js`` from the ``#ro-config`` element."""
-        return json.dumps(
-            {
-                "minArrowFraction": self.min_arrow_fraction,
-                "showTargetDot": self.show_target_dot,
-                "promptText": self.prompt_text,
-                "maxPlacementAttempts": self.max_placement_attempts,
-                "showDecoyDots": self.show_decoy_dots,
-                "showContextLabels": self.show_context_labels,
-            },
-            ensure_ascii=False,
-            allow_nan=False,  # never emit NaN/Infinity tokens (invalid JSON)
-            separators=(",", ":"),
-        )
+    def behaviour(self) -> dict[str, Any]:
+        """The behaviour settings ``render.js`` reads from ``#ro-config``.
+
+        camelCase keys matching the JS; the template encodes this to base64 JSON.
+        """
+        return {
+            "minArrowFraction": self.min_arrow_fraction,
+            "showTargetDot": self.show_target_dot,
+            "promptText": self.prompt_text,
+            "maxPlacementAttempts": self.max_placement_attempts,
+            "showDecoyDots": self.show_decoy_dots,
+            "showContextLabels": self.show_context_labels,
+        }
 
     def css_variables(self) -> dict[str, str]:
         """CSS custom properties injected onto ``.ro-root``."""
@@ -168,7 +157,3 @@ class RenderConfig:
             "--ro-box-text": self.box_text_color,
             "--ro-dot": self.target_dot_color,
         }
-
-    def fingerprint_payload(self) -> str:
-        """A stable string capturing every value, for change detection."""
-        return json.dumps(asdict(self), sort_keys=True, ensure_ascii=False)

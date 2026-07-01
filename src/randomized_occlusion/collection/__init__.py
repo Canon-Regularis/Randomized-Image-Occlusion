@@ -7,7 +7,6 @@ from .gateways import (
     AnkiModelGateway,
     MediaGateway,
     ModelGateway,
-    image_field_html,
 )
 from .note_factory import NoteContent, NoteFactory
 
@@ -18,5 +17,4 @@ __all__ = [
     "ModelGateway",
     "NoteContent",
     "NoteFactory",
-    "image_field_html",
 ]

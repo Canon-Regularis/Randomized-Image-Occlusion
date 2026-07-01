@@ -12,8 +12,15 @@ import ``anki``/``aqt``.
 
 from __future__ import annotations
 
-import html
 from typing import Any, Protocol, runtime_checkable
+
+__all__ = [
+    "AnkiMediaGateway",
+    "AnkiModelGateway",
+    "MediaGateway",
+    "ModelGateway",
+    "NotetypeDict",
+]
 
 # A note type is represented by Anki as a plain mutable dict.
 NotetypeDict = dict[str, Any]
@@ -125,13 +132,3 @@ class AnkiMediaGateway:
 
     def add_image(self, path: str) -> str:
         return self._media.add_file(path)
-
-
-def image_field_html(filename: str) -> str:
-    """Build the ``<img>`` tag stored in the ``Image`` field.
-
-    Storing a real ``<img src=...>`` (rather than a bare filename) ensures
-    Anki's "Check Media" sees the reference and never garbage-collects the file.
-    """
-    safe = html.escape(filename, quote=True)
-    return f'<img src="{safe}">'

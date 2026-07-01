@@ -31,6 +31,15 @@
     showContextLabels: false,
   };
 
+  // Placement tuning, as fractions of the stage, named so the geometry reads
+  // clearly. (Changing these changes where boxes land; the seed is unaffected.)
+  var MARGIN_X_FRACTION = 0.14; // keep box centres this far from the L/R edges
+  var MARGIN_Y_FRACTION = 0.1; // ...and from the top/bottom edges
+  var MAX_ARROW_FRACTION = 0.6; // longest arrow (single occlusion), of the diagonal
+  var MAX_ARROW_FRACTION_MULTI = 0.5; // longest arrow when placing many boxes
+  var MIN_SEPARATION_FRACTION = 0.2; // min gap between box centres (multi/cycler)
+  var ACCEPT_ARROW_FRACTION = 0.8; // accept a candidate whose arrow >= this * minLen
+
   // ---- small utilities ------------------------------------------------------
 
   /** Decode UTF-8-safe base64 into a string. */
@@ -108,9 +117,11 @@
   }
 
   /**
-   * The note payload. v2 is `{direction, structures}`; v1 (older notes) was a
-   * bare structures array, treated as forward. Self-describing so a note renders
-   * correctly regardless of the current global config.
+   * The note payload (self-describing, so a note renders correctly regardless of
+   * the current global config). v2 shape:
+   *   {v:2, mode:"multi"|"single", direction:"forward"|"reverse"|"both",
+   *    contextLabels:bool, structures:[{ord,x,y,label}, ...]}
+   * v1 (older notes) was a bare structures array, treated as multi/forward.
    */
   function readData() {
     var el = document.getElementById("ro-data");
@@ -187,9 +198,9 @@
   function placeCenter(rng, stage, target, cfg) {
     var diag = Math.hypot(stage.w, stage.h);
     var minLen = cfg.minArrowFraction * diag;
-    var maxLen = Math.max(minLen + 1, 0.6 * diag);
-    var marginX = stage.w * 0.14;
-    var marginY = stage.h * 0.1;
+    var maxLen = Math.max(minLen + 1, MAX_ARROW_FRACTION * diag);
+    var marginX = stage.w * MARGIN_X_FRACTION;
+    var marginY = stage.h * MARGIN_Y_FRACTION;
 
     var best = null;
     var bestLen = -1;
@@ -199,7 +210,7 @@
       var cx = clamp(target.x + Math.cos(angle) * length, marginX, stage.w - marginX);
       var cy = clamp(target.y + Math.sin(angle) * length, marginY, stage.h - marginY);
       var actualLen = Math.hypot(cx - target.x, cy - target.y);
-      if (actualLen >= minLen * 0.8) {
+      if (actualLen >= minLen * ACCEPT_ARROW_FRACTION) {
         return { x: cx, y: cy };
       }
       if (actualLen > bestLen) {
@@ -284,7 +295,7 @@
   function drawBox(svg, center, target, text, cfg, showArrow, extraClass) {
     var group = svgEl("g", { class: "ro-box" });
     var rectClass = extraClass ? "ro-box-rect " + extraClass : "ro-box-rect";
-    var rect = svgEl("rect", { class: rectClass, rx: "6", ry: "6" });
+    var rect = svgEl("rect", { class: rectClass, rx: "8", ry: "8" });
     var label = svgEl("text", {
       class: "ro-box-text",
       "text-anchor": "middle",
@@ -342,10 +353,10 @@
   function placeCenters(rng, stage, targets, cfg) {
     var diag = Math.hypot(stage.w, stage.h);
     var minLen = cfg.minArrowFraction * diag;
-    var maxLen = Math.max(minLen + 1, 0.5 * diag);
-    var marginX = stage.w * 0.14;
-    var marginY = stage.h * 0.1;
-    var sep = Math.min(stage.w, stage.h) * 0.2;
+    var maxLen = Math.max(minLen + 1, MAX_ARROW_FRACTION_MULTI * diag);
+    var marginX = stage.w * MARGIN_X_FRACTION;
+    var marginY = stage.h * MARGIN_Y_FRACTION;
+    var sep = Math.min(stage.w, stage.h) * MIN_SEPARATION_FRACTION;
 
     var centers = [];
     for (var i = 0; i < targets.length; i++) {
@@ -454,7 +465,7 @@
       'placeholder="Type the label…">' +
       '<button id="ro-btn" class="tappable" type="button" tabindex="-1">Check</button>' +
       "</div>" +
-      '<div class="ro-feedback" id="ro-feedback"></div>';
+      '<div class="ro-feedback" id="ro-feedback" role="status" aria-live="polite"></div>';
     root.appendChild(bar);
     return bar;
   }
@@ -477,6 +488,7 @@
 
     function updateBar() {
       var done = state.idx >= n;
+      bar.classList.toggle("ro-done", done);
       if (progress) {
         progress.textContent = done
           ? n + " / " + n + " ✓"

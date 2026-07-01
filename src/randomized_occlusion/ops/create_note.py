@@ -8,19 +8,21 @@ step.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from aqt.operations import CollectionOp
 
-from ..collection.gateways import AnkiMediaGateway, AnkiModelGateway
+from ..collection.gateways import AnkiMediaGateway
 from ..collection.note_factory import NoteFactory
 from ..config.render_config import RenderConfig
+from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
-from ..notetype.installer import NoteTypeInstaller
+from ..notetype.factory import build_installer
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
-from ..notetype.templates import TemplateAssembler
-from ..resources import read_web
+
+__all__ = ["NoteRequest", "add_randomized_occlusion_note"]
 
 _UNDO_NAME = "Add Randomized Occlusion note"
 
@@ -32,10 +34,7 @@ class NoteRequest:
     image_path: str
     structures: StructureSet
     deck_name: str
-    direction: str = "forward"
-    interaction: str = "reveal"
-    context_labels: bool = False
-    mode: str = "multi"
+    options: CardOptions = field(default_factory=CardOptions)
     header: str = ""
     back_extra: str = ""
 
@@ -56,9 +55,7 @@ def add_randomized_occlusion_note(
         # queue; doing it inside the entry would invalidate the "Add note" undo
         # step. In normal use this is a no-op — bootstrap installs the note type
         # at profile open, so nothing here changes the schema.
-        assembler = TemplateAssembler(spec, read_web("review/render.js"))
-        installer = NoteTypeInstaller(AnkiModelGateway(col), assembler, spec)
-        installer.ensure_installed(render_config)
+        build_installer(col, spec).ensure_installed(render_config)
 
         undo_position = col.add_custom_undo_entry(_UNDO_NAME)
         filename = AnkiMediaGateway(col).add_image(request.image_path)
@@ -66,10 +63,7 @@ def add_randomized_occlusion_note(
             image_filename=filename,
             structures=request.structures,
             deck_name=request.deck_name,
-            direction=request.direction,
-            interaction=request.interaction,
-            context_labels=request.context_labels,
-            mode=request.mode,
+            options=request.options,
             header=request.header,
             back_extra=request.back_extra,
         )

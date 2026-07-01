@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
-
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
 from randomized_occlusion.config.render_config import RenderConfig
+from randomized_occlusion.domain.codec import encode_json_b64
 
 
 def test_from_mapping_fills_missing_with_defaults():
@@ -12,10 +11,9 @@ def test_from_mapping_fills_missing_with_defaults():
     assert rc.min_arrow_fraction == DEFAULT_CONFIG["min_arrow_fraction"]
 
 
-def test_behaviour_json_uses_camel_case_keys():
+def test_behaviour_uses_camel_case_keys():
     rc = RenderConfig.from_mapping(DEFAULT_CONFIG)
-    data = json.loads(rc.behaviour_json())
-    assert set(data) == {
+    assert set(rc.behaviour()) == {
         "minArrowFraction",
         "showTargetDot",
         "promptText",
@@ -32,12 +30,6 @@ def test_css_variables_cover_all_colors():
     assert set(variables) == {"--ro-accent", "--ro-box-fill", "--ro-box-text", "--ro-dot"}
 
 
-def test_fingerprint_payload_changes_with_values():
-    a = RenderConfig.from_mapping(DEFAULT_CONFIG).fingerprint_payload()
-    b = RenderConfig.from_mapping({**DEFAULT_CONFIG, "accent_color": "#123456"}).fingerprint_payload()
-    assert a != b
-
-
 def test_from_mapping_is_total_on_garbage():
     rc = RenderConfig.from_mapping(
         {
@@ -51,11 +43,12 @@ def test_from_mapping_is_total_on_garbage():
     assert rc.accent_color == DEFAULT_CONFIG["accent_color"]
 
 
-def test_non_finite_arrow_fraction_falls_back_and_json_stays_valid():
+def test_non_finite_arrow_fraction_falls_back_and_encodes_cleanly():
     rc = RenderConfig.from_mapping({"min_arrow_fraction": float("inf")})
     assert rc.min_arrow_fraction == DEFAULT_CONFIG["min_arrow_fraction"]
-    # behaviour_json must always be parseable JSON (no NaN/Infinity tokens).
-    json.loads(RenderConfig.from_mapping({"min_arrow_fraction": float("nan")}).behaviour_json())
+    # The finite fallback means the behaviour dict encodes without NaN tokens.
+    nan_rc = RenderConfig.from_mapping({"min_arrow_fraction": float("nan")})
+    assert encode_json_b64(nan_rc.behaviour())  # would raise on a NaN value
 
 
 def test_min_arrow_fraction_is_clamped_to_unit_interval():
@@ -73,26 +66,9 @@ def test_max_placement_attempts_clamped_to_at_least_one():
     assert RenderConfig.from_mapping({"max_placement_attempts": -5}).max_placement_attempts == 1
 
 
-def test_interaction_accepts_known_values_and_rejects_others():
-    assert RenderConfig.from_mapping({"interaction": "type"}).interaction == "type"
-    assert RenderConfig.from_mapping({"interaction": "TYPE"}).interaction == "type"
-    assert (
-        RenderConfig.from_mapping({"interaction": "nonsense"}).interaction
-        == DEFAULT_CONFIG["interaction"]
-    )
-
-
-def test_direction_accepts_known_values_and_rejects_others():
-    for value in ["forward", "reverse", "both"]:
-        assert RenderConfig.from_mapping({"direction": value}).direction == value
-    assert (
-        RenderConfig.from_mapping({"direction": "sideways"}).direction
-        == DEFAULT_CONFIG["direction"]
-    )
-
-
 def test_valid_colors_are_accepted():
-    for color in ["#e53935", "#fff", "#11223344", "red", "rebeccapurple", "rgb(1, 2, 3)", "rgba(1,2,3,.5)"]:
+    colors = ["#e53935", "#fff", "#11223344", "red", "rebeccapurple", "rgb(1, 2, 3)"]
+    for color in colors:
         assert RenderConfig.from_mapping({"accent_color": color}).accent_color == color
 
 

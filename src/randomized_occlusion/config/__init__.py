@@ -12,10 +12,10 @@ from .defaults import DEFAULT_CONFIG
 from .render_config import RenderConfig
 
 __all__ = [
+    "DEFAULT_CONFIG",
     "AnkiConfigProvider",
     "ConfigProvider",
     "ConfigService",
-    "DEFAULT_CONFIG",
     "InMemoryConfigProvider",
     "RenderConfig",
 ]

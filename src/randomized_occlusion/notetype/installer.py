@@ -9,6 +9,8 @@ from ..config.render_config import RenderConfig
 from .spec import NoteTypeSpec
 from .templates import TemplateAssembler, extract_fingerprint
 
+__all__ = ["InstallResult", "NoteTypeInstaller"]
+
 
 class InstallResult(enum.Enum):
     CREATED = "created"

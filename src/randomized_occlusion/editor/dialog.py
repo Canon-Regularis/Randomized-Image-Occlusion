@@ -20,6 +20,7 @@ from aqt.qt import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,22 +29,11 @@ from aqt.qt import (
     QVBoxLayout,
     qconnect,
 )
-
-_DIRECTIONS = ("forward", "reverse", "both")
-_DIRECTION_LABELS = (
-    "Forward — name the structure",
-    "Reverse — locate the structure",
-    "Both",
-)
-_CARD_MODES = ("multi", "single")
-_CARD_MODE_LABELS = (
-    "Multi — one card per label",
-    "Single — cycle all on one card (type each)",
-)
 from aqt.utils import showWarning, tooltip
 from aqt.webview import AnkiWebView
 
 from ..config.config_service import ConfigService
+from ..domain.card_options import CardMode, CardOptions, Direction, Interaction
 from ..domain.geometry import NormalizedPoint
 from ..domain.structure import Structure
 from ..domain.structure_set import StructureSet
@@ -51,7 +41,27 @@ from ..ops.create_note import NoteRequest, add_randomized_occlusion_note
 from ..resources import read_web
 from .bridge import MarkerBridge
 
+__all__ = ["MarkerDialog"]
+
 _IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)"
+
+# (enum member, display label) pairs backing the option combo boxes.
+_DIRECTION_CHOICES: tuple[tuple[Direction, str], ...] = (
+    (Direction.FORWARD, "Forward — name the structure"),
+    (Direction.REVERSE, "Reverse — locate the structure"),
+    (Direction.BOTH, "Both"),
+)
+_CARD_MODE_CHOICES: tuple[tuple[CardMode, str], ...] = (
+    (CardMode.MULTI, "Multi — one card per label"),
+    (CardMode.SINGLE, "Single — cycle all on one card (type each)"),
+)
+
+
+def _choice_index(choices: tuple[tuple[Any, str], ...], member: Any) -> int:
+    for index, (value, _label) in enumerate(choices):
+        if value == member:
+            return index
+    return 0
 
 
 class MarkerDialog(QDialog):
@@ -67,6 +77,7 @@ class MarkerDialog(QDialog):
         )
 
         self.setWindowTitle("Randomized Image Occlusion")
+        self.setMinimumSize(720, 520)
         self.resize(960, 680)
         self._build_ui()
         self._load_page()
@@ -79,11 +90,12 @@ class MarkerDialog(QDialog):
 
         toolbar = QHBoxLayout()
         self._load_button = QPushButton("Load image…")
+        self._load_button.setToolTip("Choose the image to mark up")
         qconnect(self._load_button.clicked, self._choose_image)
         toolbar.addWidget(self._load_button)
         toolbar.addStretch(1)
         self._status = QLabel("Load an image to begin.")
-        self._status.setStyleSheet("color: #777;")
+        self._status.setStyleSheet("color: palette(mid);")  # dim, theme-aware
         toolbar.addWidget(self._status)
         layout.addLayout(toolbar)
 
@@ -91,50 +103,8 @@ class MarkerDialog(QDialog):
         self.web.set_bridge_command(self._bridge.handle, self)
         layout.addWidget(self.web, stretch=1)
 
-        form = QFormLayout()
-        self._header_edit = QLineEdit()
-        self._header_edit.setPlaceholderText("Optional title shown above the image")
-        form.addRow("Header:", self._header_edit)
-
-        self._extra_edit = QPlainTextEdit()
-        self._extra_edit.setPlaceholderText("Optional extra info shown on the answer side")
-        self._extra_edit.setFixedHeight(56)
-        form.addRow("Back extra:", self._extra_edit)
-
-        settings = self._config.load()
-
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(_CARD_MODE_LABELS)
-        try:
-            self._mode_combo.setCurrentIndex(
-                _CARD_MODES.index(settings.get("card_mode", "multi"))
-            )
-        except ValueError:
-            self._mode_combo.setCurrentIndex(0)
-        form.addRow("Mode:", self._mode_combo)
-
-        self._direction_combo = QComboBox()
-        self._direction_combo.addItems(_DIRECTION_LABELS)
-        try:
-            self._direction_combo.setCurrentIndex(
-                _DIRECTIONS.index(settings.get("direction", "forward"))
-            )
-        except ValueError:
-            self._direction_combo.setCurrentIndex(0)
-        form.addRow("Cards:", self._direction_combo)
-
-        self._type_check = QCheckBox("Type the answer (Anki grades it)")
-        self._type_check.setChecked(settings.get("interaction") == "type")
-        form.addRow("", self._type_check)
-
-        self._context_check = QCheckBox("Show other labels as context")
-        self._context_check.setChecked(bool(settings.get("show_context_labels")))
-        form.addRow("", self._context_check)
-
-        self._deck_combo = QComboBox()
-        self._populate_decks()
-        form.addRow("Deck:", self._deck_combo)
-        layout.addLayout(form)
+        layout.addLayout(self._build_content_form())
+        layout.addWidget(self._build_options_group())
 
         self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -143,6 +113,73 @@ class MarkerDialog(QDialog):
         qconnect(self._buttons.rejected, self.reject)
         layout.addWidget(self._buttons)
         self._update_save_enabled()
+        self._set_tab_order()
+        self._load_button.setFocus()
+
+    def _build_content_form(self) -> QFormLayout:
+        form = QFormLayout()
+        self._header_edit = QLineEdit()
+        self._header_edit.setPlaceholderText("Optional title shown above the image")
+        self._header_edit.setToolTip("Shown above the image on both sides of the card")
+        form.addRow("Header:", self._header_edit)
+
+        self._extra_edit = QPlainTextEdit()
+        self._extra_edit.setPlaceholderText("Optional extra info shown on the answer side")
+        self._extra_edit.setToolTip("Revealed on the answer side, below the image")
+        self._extra_edit.setMinimumHeight(48)
+        self._extra_edit.setMaximumHeight(90)
+        form.addRow("Back extra:", self._extra_edit)
+
+        self._deck_combo = QComboBox()
+        self._deck_combo.setToolTip("Deck the new card(s) are added to")
+        self._populate_decks()
+        form.addRow("Deck:", self._deck_combo)
+        return form
+
+    def _build_options_group(self) -> QGroupBox:
+        defaults = self._config.editor_defaults()
+        group = QGroupBox("Card options")
+        form = QFormLayout(group)
+
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems([label for _, label in _CARD_MODE_CHOICES])
+        self._mode_combo.setCurrentIndex(_choice_index(_CARD_MODE_CHOICES, defaults.mode))
+        self._mode_combo.setToolTip(
+            "Multi: one card per label. Single: one card that cycles through every "
+            "label (you type each answer), re-randomised every review."
+        )
+        form.addRow("Mode:", self._mode_combo)
+
+        self._direction_combo = QComboBox()
+        self._direction_combo.addItems([label for _, label in _DIRECTION_CHOICES])
+        self._direction_combo.setCurrentIndex(
+            _choice_index(_DIRECTION_CHOICES, defaults.direction)
+        )
+        self._direction_combo.setToolTip(
+            "Forward: name the arrowed structure. Reverse: given the name, locate it. "
+            "Both: one of each. (Multi mode only.)"
+        )
+        form.addRow("Direction:", self._direction_combo)
+
+        self._type_check = QCheckBox("Type the answer (Anki grades it)")
+        self._type_check.setChecked(defaults.interaction == Interaction.TYPE)
+        self._type_check.setToolTip("Multi mode: type the label instead of flipping to reveal it")
+        form.addRow("", self._type_check)
+
+        self._context_check = QCheckBox("Show other labels as context")
+        self._context_check.setChecked(defaults.context_labels)
+        self._context_check.setToolTip("Reveal the other structures' labels around the tested one")
+        form.addRow("", self._context_check)
+        return group
+
+    def _set_tab_order(self) -> None:
+        self.setTabOrder(self._load_button, self._header_edit)
+        self.setTabOrder(self._header_edit, self._extra_edit)
+        self.setTabOrder(self._extra_edit, self._deck_combo)
+        self.setTabOrder(self._deck_combo, self._mode_combo)
+        self.setTabOrder(self._mode_combo, self._direction_combo)
+        self.setTabOrder(self._direction_combo, self._type_check)
+        self.setTabOrder(self._type_check, self._context_check)
 
     def _populate_decks(self) -> None:
         names = sorted(d.name for d in self._mw.col.decks.all_names_and_ids())
@@ -153,8 +190,12 @@ class MarkerDialog(QDialog):
             self._deck_combo.setCurrentIndex(index)
 
     def _load_page(self) -> None:
+        # The accent is a validated CSS colour (see RenderConfig._as_color), so
+        # it is safe to inline; it makes the editor markers match the card accent.
+        accent = self._config.render_config().accent_color
         body = "\n".join(
             [
+                f"<style>:root {{ --ed-accent: {accent}; }}</style>",
                 f"<style>{read_web('editor/marker.css')}</style>",
                 read_web("editor/marker.html"),
                 f"<script>{read_web('editor/marker.js')}</script>",
@@ -239,14 +280,19 @@ class MarkerDialog(QDialog):
 
         deck_name = self._deck_combo.currentText() or "Default"
         self._config.set_deck(deck_name)
+        options = CardOptions(
+            direction=_DIRECTION_CHOICES[self._direction_combo.currentIndex()][0],
+            interaction=(
+                Interaction.TYPE if self._type_check.isChecked() else Interaction.REVEAL
+            ),
+            context_labels=self._context_check.isChecked(),
+            mode=_CARD_MODE_CHOICES[self._mode_combo.currentIndex()][0],
+        )
         request = NoteRequest(
             image_path=self._image_path,
             structures=structures,
             deck_name=deck_name,
-            direction=_DIRECTIONS[self._direction_combo.currentIndex()],
-            interaction="type" if self._type_check.isChecked() else "reveal",
-            context_labels=self._context_check.isChecked(),
-            mode=_CARD_MODES[self._mode_combo.currentIndex()],
+            options=options,
             header=self._header_edit.text().strip(),
             back_extra=self._extra_edit.toPlainText().strip(),
         )

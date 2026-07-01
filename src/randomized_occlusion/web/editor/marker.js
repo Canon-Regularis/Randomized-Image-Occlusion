@@ -75,6 +75,13 @@ window.ROEditor = (function () {
     var list = el("ed-list");
     if (!list) return;
     list.innerHTML = "";
+    if (!markers.length) {
+      var placeholder = document.createElement("div");
+      placeholder.className = "ed-empty-row";
+      placeholder.textContent = "No markers yet — click the image to add one.";
+      list.appendChild(placeholder);
+      return;
+    }
     markers.forEach(function (marker, index) {
       var row = document.createElement("div");
       row.className = "ed-row";
@@ -175,6 +182,15 @@ window.ROEditor = (function () {
     var img = el("ed-img");
     if (img) img.addEventListener("click", onImageClick);
     window.addEventListener("resize", renderOverlay);
+    // Keep the overlay aligned when the dialog/stage/image resizes or the image
+    // finishes laying out (more reliable than window 'resize' alone).
+    var stage = el("ed-stage");
+    if (stage && typeof ResizeObserver === "function") {
+      new ResizeObserver(function () {
+        renderOverlay();
+      }).observe(stage);
+    }
+    renderList();
     // Tell Python we are ready to receive an image. pycmd is injected by Anki's
     // webview bootstrap; retry briefly in case it is not defined yet.
     var tries = 0;

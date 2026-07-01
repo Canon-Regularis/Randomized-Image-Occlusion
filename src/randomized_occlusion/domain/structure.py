@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 
 from .geometry import NormalizedPoint
+
+__all__ = ["Structure", "StructureDict"]
+
+
+class StructureDict(TypedDict):
+    """The JSON shape of a serialized :class:`Structure` (the payload contract)."""
+
+    ord: int
+    x: float
+    y: float
+    label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +44,7 @@ class Structure:
         if not self.label or not self.label.strip():
             raise ValueError("label must be a non-empty string")
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> StructureDict:
         """Serialize to a JSON-friendly dict consumed by the reviewer JS."""
         return {
             "ord": self.ordinal,
@@ -42,9 +54,9 @@ class Structure:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, object]) -> Structure:
+    def from_dict(cls, data: StructureDict) -> Structure:
         return cls(
-            ordinal=int(data["ord"]),  # type: ignore[arg-type]
-            target=NormalizedPoint(x=float(data["x"]), y=float(data["y"])),  # type: ignore[arg-type]
+            ordinal=int(data["ord"]),
+            target=NormalizedPoint(x=float(data["x"]), y=float(data["y"])),
             label=str(data["label"]),
         )

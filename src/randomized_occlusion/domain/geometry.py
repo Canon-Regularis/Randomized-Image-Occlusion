@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+__all__ = ["NormalizedPoint"]
+
 _UNIT_INTERVAL = (0.0, 1.0)
 
 

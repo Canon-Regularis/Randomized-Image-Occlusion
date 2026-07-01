@@ -11,8 +11,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from ..domain.card_options import CardOptions
 from .defaults import DEFAULT_CONFIG
 from .render_config import RenderConfig
+
+__all__ = [
+    "AnkiConfigProvider",
+    "ConfigProvider",
+    "ConfigService",
+    "InMemoryConfigProvider",
+]
 
 
 class ConfigProvider(Protocol):
@@ -65,6 +73,10 @@ class ConfigService:
 
     def render_config(self) -> RenderConfig:
         return RenderConfig.from_mapping(self.load())
+
+    def editor_defaults(self) -> CardOptions:
+        """The per-note options the editor dialog pre-selects."""
+        return CardOptions.from_config(self.load())
 
     def deck(self) -> str:
         return str(self.load().get("deck", DEFAULT_CONFIG["deck"]))

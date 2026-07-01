@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+__all__ = ["DEFAULT_SPEC", "NoteTypeSpec"]
+
 
 @dataclass(frozen=True, slots=True)
 class NoteTypeSpec:
@@ -25,10 +27,6 @@ class NoteTypeSpec:
     type_flag_field: str
     sort_field: str
     template_name: str
-
-    @property
-    def is_cloze(self) -> bool:
-        return True
 
     @property
     def sort_index(self) -> int:
