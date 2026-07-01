@@ -167,7 +167,7 @@ Config**. Each option is documented in
 
 ## Thanks
 
-This add-on exists because **Ezra**!
+This add-on exists because of **Ezra**!
 
 ## For developers
 
