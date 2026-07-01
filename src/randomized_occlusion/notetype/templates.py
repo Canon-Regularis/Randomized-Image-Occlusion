@@ -82,13 +82,19 @@ class TemplateAssembler:
 
     def back(self) -> str:
         s = self._spec
+        # The cloze note-type validator requires a literal {{cloze:...}} on BOTH
+        # sides. The front already has one; the back reaches it only through
+        # {{FrontSide}}, which the validator doesn't follow — so we add a hidden
+        # one here. It doubles as the back-side sentinel (#ro-answer) the JS
+        # looks for. The renderer reads the active ordinal from the FrontSide
+        # copy inside #ro-ordinal, so this extra hidden cloze is inert.
         return dedent(
             """\
             {{{{FrontSide}}}}
-            <div id="ro-answer" class="ro-answer" aria-hidden="true"></div>
+            <div id="ro-answer" class="ro-answer" aria-hidden="true">{{{{cloze:{cloze}}}}}</div>
             {{{{#{extra}}}}}<div class="ro-extra">{{{{{extra}}}}}</div>{{{{/{extra}}}}}
             """
-        ).format(extra=s.back_extra_field)
+        ).format(cloze=s.cloze_field, extra=s.back_extra_field)
 
     def css(self, render_config: RenderConfig) -> str:
         fingerprint = self.fingerprint(render_config)

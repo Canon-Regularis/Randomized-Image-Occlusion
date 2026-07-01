@@ -71,7 +71,20 @@ def test_front_only_references_declared_fields_with_real_js():
 
 def test_back_only_references_declared_fields():
     tokens = set(_FIELD_TOKEN_RE.findall(_assembler().back()))
-    assert tokens == {"FrontSide", "#Back Extra", "Back Extra", "/Back Extra"}
+    assert tokens == {
+        "FrontSide",
+        "cloze:Ordinals",
+        "#Back Extra",
+        "Back Extra",
+        "/Back Extra",
+    }
+
+
+def test_both_sides_contain_a_literal_cloze_reference():
+    # Anki's cloze note-type validator requires {{cloze:...}} on both sides.
+    asm = _assembler()
+    assert "{{cloze:Ordinals}}" in asm.front(RC)
+    assert "{{cloze:Ordinals}}" in asm.back()
 
 
 def test_back_contains_frontside_and_answer_sentinel():
