@@ -8,6 +8,7 @@ It knows nothing about the collection or how the note type is installed.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
 from textwrap import dedent
@@ -28,14 +29,23 @@ def extract_fingerprint(css: str) -> str | None:
 
 
 def _script_safe(text: str) -> str:
-    """Neutralise any ``</`` so embedded text can't terminate a ``<script>``.
+    """Neutralise any ``</`` so embedded JS can't terminate its ``<script>``.
 
-    ``<\\/`` is equivalent to ``</`` both inside a JSON string (``\\/`` is a valid
-    JSON escape for ``/``) and inside our JavaScript, so this is safe for every
-    payload we embed in a ``<script>`` element — the renderer JS and the config
-    JSON alike (the latter carries user-editable values such as ``prompt_text``).
+    ``<\\/`` is equivalent to ``</`` inside our JavaScript, so this is safe.
+    Used for the renderer JS, which is add-on-authored (not user data).
     """
     return text.replace("</", "<\\/")
+
+
+def _base64_payload(text: str) -> str:
+    """Base64 a UTF-8 string for embedding in a ``<script>`` element.
+
+    Used for the config JSON, whose values (``prompt_text``, colours) come from
+    the user-editable add-on config. Base64 removes every ``<``, ``{{`` and quote
+    hazard at once, so those values can neither close the script element nor be
+    mistaken for an Anki ``{{...}}`` template directive baked into the template.
+    """
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
 class TemplateAssembler:
@@ -66,7 +76,7 @@ class TemplateAssembler:
             image=s.image_field,
             cloze=s.cloze_field,
             structures=s.structures_field,
-            config=_script_safe(render_config.behaviour_json()),
+            config=_base64_payload(render_config.behaviour_json()),
             render_js=self._render_js,
         )
 

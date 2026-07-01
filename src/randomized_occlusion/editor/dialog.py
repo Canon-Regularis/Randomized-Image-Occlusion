@@ -25,8 +25,6 @@ from aqt.qt import (
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
-    QWidget,
-    Qt,
     qconnect,
 )
 from aqt.utils import showWarning, tooltip
@@ -169,6 +167,8 @@ class MarkerDialog(QDialog):
         self.web.evalWithCallback("ROEditor.getMarkers()", self._on_markers)
 
     def _on_markers(self, markers: Any) -> None:
+        if not self._image_path:  # image was cleared between Save and callback
+            return
         if not isinstance(markers, list) or not markers:
             showWarning("Add at least one marker before saving.")
             return
@@ -231,5 +231,9 @@ class MarkerDialog(QDialog):
             save.setEnabled(bool(self._image_path) and self._marker_count > 0)
 
     def _on_finished(self, _result: int) -> None:
-        # AnkiWebView must be torn down explicitly or Anki can crash on close.
-        self.web.cleanup()
+        # AnkiWebView should be torn down explicitly or Anki can leak/crash on
+        # close. cleanup() exists on modern AnkiWebView; guard for safety across
+        # versions so a missing method can't raise out of this close handler.
+        cleanup = getattr(self.web, "cleanup", None)
+        if callable(cleanup):
+            cleanup()

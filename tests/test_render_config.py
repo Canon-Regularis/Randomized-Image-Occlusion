@@ -69,3 +69,16 @@ def test_string_booleans_are_coerced():
 def test_max_placement_attempts_clamped_to_at_least_one():
     assert RenderConfig.from_mapping({"max_placement_attempts": 0}).max_placement_attempts == 1
     assert RenderConfig.from_mapping({"max_placement_attempts": -5}).max_placement_attempts == 1
+
+
+def test_valid_colors_are_accepted():
+    for color in ["#e53935", "#fff", "#11223344", "red", "rebeccapurple", "rgb(1, 2, 3)", "rgba(1,2,3,.5)"]:
+        assert RenderConfig.from_mapping({"accent_color": color}).accent_color == color
+
+
+def test_malicious_or_malformed_colors_fall_back_to_default():
+    for color in ["red; } </style><script>x</script>", "#nothex", "url(x)", ""]:
+        assert (
+            RenderConfig.from_mapping({"accent_color": color}).accent_color
+            == DEFAULT_CONFIG["accent_color"]
+        )

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import json
+import re
+
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
 from randomized_occlusion.config.render_config import RenderConfig
 from randomized_occlusion.notetype.spec import DEFAULT_SPEC
@@ -23,7 +27,17 @@ def test_front_contains_required_anki_tokens():
     assert "{{cloze:Ordinals}}" in front
     assert 'id="ro-stage"' in front
     assert 'id="ro-overlay"' in front
-    assert RC.behaviour_json() in front
+
+
+def _extract_config(front: str) -> dict:
+    match = re.search(r'id="ro-config"[^>]*>([^<]*)</script>', front)
+    assert match, "config script element not found"
+    return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+
+
+def test_front_embeds_config_as_decodable_base64():
+    front = _assembler().front(RC)
+    assert _extract_config(front)["promptText"] == RC.prompt_text
 
 
 def test_front_embeds_render_js():
@@ -50,9 +64,19 @@ def test_render_js_closing_tag_is_escaped():
 def test_config_script_breakout_is_neutralised():
     rc = RenderConfig.from_mapping({**DEFAULT_CONFIG, "prompt_text": "</script><b>x"})
     front = _assembler().front(rc)
-    # The user-controlled prompt_text must not be able to close the config script.
-    assert '"promptText":"</script>' not in front
-    assert '"promptText":"<\\/script>' in front
+    # base64 config carries no raw '<', so it can't close the script early...
+    assert front.count("</script>") == 3  # only the three structural closers
+    # ...yet the value round-trips intact.
+    assert _extract_config(front)["promptText"] == "</script><b>x"
+
+
+def test_config_template_directive_cannot_be_injected():
+    # An Anki directive in prompt_text must not survive as a live {{...}} in the
+    # baked template (base64 hides it).
+    rc = RenderConfig.from_mapping({**DEFAULT_CONFIG, "prompt_text": "{{Deck}}"})
+    front = _assembler().front(rc)
+    assert "{{Deck}}" not in front
+    assert _extract_config(front)["promptText"] == "{{Deck}}"
 
 
 def test_css_embeds_fingerprint_and_variables():

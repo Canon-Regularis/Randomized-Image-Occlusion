@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -21,6 +22,15 @@ from .defaults import DEFAULT_CONFIG
 
 # Strings a user might type into config.json that should read as ``False``.
 _FALSEY_STRINGS = {"false", "0", "no", "off", "", "none"}
+
+# A conservative allow-list for CSS colours. These values are written verbatim
+# into the note type's stylesheet, so anything not matching (which could break
+# the CSS or inject rules) is rejected in favour of the default.
+_COLOR_RE = re.compile(
+    r"^(#[0-9A-Fa-f]{3,8}"
+    r"|[A-Za-z]+"
+    r"|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\))$"
+)
 
 
 def _as_float(value: Any, default: float, *, low: float, high: float) -> float:
@@ -53,6 +63,11 @@ def _as_bool(value: Any, default: bool) -> bool:
 
 def _as_str(value: Any, default: str) -> str:
     return default if value is None else str(value)
+
+
+def _as_color(value: Any, default: str) -> str:
+    text = "" if value is None else str(value).strip()
+    return text if _COLOR_RE.match(text) else default
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,12 +109,12 @@ class RenderConfig:
                 DEFAULT_CONFIG["max_placement_attempts"],
                 minimum=1,
             ),
-            accent_color=_as_str(get("accent_color"), DEFAULT_CONFIG["accent_color"]),
-            box_fill=_as_str(get("box_fill"), DEFAULT_CONFIG["box_fill"]),
-            box_text_color=_as_str(
+            accent_color=_as_color(get("accent_color"), DEFAULT_CONFIG["accent_color"]),
+            box_fill=_as_color(get("box_fill"), DEFAULT_CONFIG["box_fill"]),
+            box_text_color=_as_color(
                 get("box_text_color"), DEFAULT_CONFIG["box_text_color"]
             ),
-            target_dot_color=_as_str(
+            target_dot_color=_as_color(
                 get("target_dot_color"), DEFAULT_CONFIG["target_dot_color"]
             ),
         )

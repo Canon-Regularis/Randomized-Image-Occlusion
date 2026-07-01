@@ -80,20 +80,20 @@
 
   // ---- DOM reading ----------------------------------------------------------
 
-  function parseJsonElement(id, fallback) {
-    var el = document.getElementById(id);
-    if (!el) return fallback;
-    var text = (el.textContent || "").trim();
-    if (!text) return fallback;
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      return fallback;
-    }
-  }
-
   function readConfig() {
-    var cfg = parseJsonElement("ro-config", {});
+    // Config is embedded as base64 JSON (like the structures) so user-editable
+    // values (prompt_text, colours) can never break out of the <script> element
+    // or be mistaken for an Anki `{{...}}` template directive.
+    var el = document.getElementById("ro-config");
+    var raw = el ? (el.textContent || "").trim() : "";
+    var cfg = {};
+    if (raw) {
+      try {
+        cfg = JSON.parse(decodeBase64Utf8(raw));
+      } catch (e) {
+        cfg = {};
+      }
+    }
     var merged = {};
     for (var key in DEFAULT_CONFIG) {
       if (Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) {
@@ -381,11 +381,18 @@
   }
 
   /** Defer until the image is laid out, then render (and re-render on resize). */
-  function run() {
+  function run(attempt) {
+    attempt = attempt || 0;
     var img = getImage();
     if (!img) {
-      // DOM may not be ready (parse-mode clients); try again on the next task.
-      window.setTimeout(run, 0);
+      // DOM/image may not be ready yet (parse-mode clients); retry a bounded
+      // number of times, then give up — a note with an empty Image field must
+      // not spin setTimeout forever and peg the CPU.
+      if (attempt < 30) {
+        window.setTimeout(function () {
+          run(attempt + 1);
+        }, 16);
+      }
       return;
     }
 
