@@ -80,6 +80,15 @@ def test_back_only_references_declared_fields():
     }
 
 
+def test_type_mode_adds_a_type_in_box():
+    type_rc = RenderConfig.from_mapping({**DEFAULT_CONFIG, "interaction": "type"})
+    assert "{{type:cloze:Ordinals}}" in _assembler().front(type_rc)
+
+
+def test_reveal_mode_has_no_type_in_box():
+    assert "{{type:cloze:Ordinals}}" not in _assembler().front(RC)
+
+
 def test_both_sides_contain_a_literal_cloze_reference():
     # Anki's cloze note-type validator requires {{cloze:...}} on both sides.
     asm = _assembler()

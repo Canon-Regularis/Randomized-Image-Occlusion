@@ -20,6 +20,8 @@ def test_behaviour_json_uses_camel_case_keys():
         "showTargetDot",
         "promptText",
         "maxPlacementAttempts",
+        "showDecoyDots",
+        "showContextLabels",
     }
 
 
@@ -69,6 +71,24 @@ def test_string_booleans_are_coerced():
 def test_max_placement_attempts_clamped_to_at_least_one():
     assert RenderConfig.from_mapping({"max_placement_attempts": 0}).max_placement_attempts == 1
     assert RenderConfig.from_mapping({"max_placement_attempts": -5}).max_placement_attempts == 1
+
+
+def test_interaction_accepts_known_values_and_rejects_others():
+    assert RenderConfig.from_mapping({"interaction": "type"}).interaction == "type"
+    assert RenderConfig.from_mapping({"interaction": "TYPE"}).interaction == "type"
+    assert (
+        RenderConfig.from_mapping({"interaction": "nonsense"}).interaction
+        == DEFAULT_CONFIG["interaction"]
+    )
+
+
+def test_direction_accepts_known_values_and_rejects_others():
+    for value in ["forward", "reverse", "both"]:
+        assert RenderConfig.from_mapping({"direction": value}).direction == value
+    assert (
+        RenderConfig.from_mapping({"direction": "sideways"}).direction
+        == DEFAULT_CONFIG["direction"]
+    )
 
 
 def test_valid_colors_are_accepted():

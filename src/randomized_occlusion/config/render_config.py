@@ -70,12 +70,21 @@ def _as_color(value: Any, default: str) -> str:
     return text if _COLOR_RE.match(text) else default
 
 
+def _as_choice(value: Any, default: str, allowed: frozenset[str]) -> str:
+    text = "" if value is None else str(value).strip().lower()
+    return text if text in allowed else default
+
+
 @dataclass(frozen=True, slots=True)
 class RenderConfig:
     min_arrow_fraction: float
     show_target_dot: bool
     prompt_text: str
     max_placement_attempts: int
+    show_decoy_dots: bool
+    show_context_labels: bool
+    interaction: str
+    direction: str
     accent_color: str
     box_fill: str
     box_text_color: str
@@ -109,6 +118,22 @@ class RenderConfig:
                 DEFAULT_CONFIG["max_placement_attempts"],
                 minimum=1,
             ),
+            show_decoy_dots=_as_bool(
+                get("show_decoy_dots"), DEFAULT_CONFIG["show_decoy_dots"]
+            ),
+            show_context_labels=_as_bool(
+                get("show_context_labels"), DEFAULT_CONFIG["show_context_labels"]
+            ),
+            interaction=_as_choice(
+                get("interaction"),
+                DEFAULT_CONFIG["interaction"],
+                frozenset({"reveal", "type"}),
+            ),
+            direction=_as_choice(
+                get("direction"),
+                DEFAULT_CONFIG["direction"],
+                frozenset({"forward", "reverse", "both"}),
+            ),
             accent_color=_as_color(get("accent_color"), DEFAULT_CONFIG["accent_color"]),
             box_fill=_as_color(get("box_fill"), DEFAULT_CONFIG["box_fill"]),
             box_text_color=_as_color(
@@ -127,6 +152,8 @@ class RenderConfig:
                 "showTargetDot": self.show_target_dot,
                 "promptText": self.prompt_text,
                 "maxPlacementAttempts": self.max_placement_attempts,
+                "showDecoyDots": self.show_decoy_dots,
+                "showContextLabels": self.show_context_labels,
             },
             ensure_ascii=False,
             allow_nan=False,  # never emit NaN/Infinity tokens (invalid JSON)

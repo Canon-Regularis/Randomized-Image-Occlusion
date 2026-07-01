@@ -35,14 +35,15 @@ class NoteFactory:
         image_filename: str,
         structures: StructureSet,
         deck_name: str,
+        direction: str = "forward",
         header: str = "",
         back_extra: str = "",
     ) -> NoteContent:
         spec = self._spec
         fields = {
             spec.image_field: image_field_html(image_filename),
-            spec.structures_field: structures.to_base64(),
-            spec.cloze_field: structures.cloze_field(),
+            spec.structures_field: structures.to_payload_base64(direction),
+            spec.cloze_field: structures.cloze_field(direction),
             spec.header_field: header,
             spec.back_extra_field: back_extra,
         }

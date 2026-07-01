@@ -57,6 +57,14 @@ class TemplateAssembler:
 
     def front(self, render_config: RenderConfig) -> str:
         s = self._spec
+        # In "type" mode add a type-in box that grades the typed answer against
+        # the active cloze (the label). Plain string (not f-string) so the "{{"
+        # stay literal; inserted as a .format value so they aren't re-parsed.
+        type_block = ""
+        if render_config.interaction == "type":
+            type_block = (
+                '<div class="ro-type">{{type:cloze:' + s.cloze_field + "}}</div>\n  "
+            )
         return dedent(
             """\
             <div id="ro-root" class="ro-root">
@@ -65,7 +73,7 @@ class TemplateAssembler:
                 {{{{{image}}}}}
                 <svg id="ro-overlay" class="ro-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
               </div>
-              <div id="ro-ordinal" class="ro-hidden">{{{{cloze:{cloze}}}}}</div>
+              {type_block}<div id="ro-ordinal" class="ro-hidden">{{{{cloze:{cloze}}}}}</div>
               <script id="ro-data" type="application/json">{{{{{structures}}}}}</script>
               <script id="ro-config" type="application/json">{config}</script>
               <script>{render_js}</script>
@@ -76,6 +84,7 @@ class TemplateAssembler:
             image=s.image_field,
             cloze=s.cloze_field,
             structures=s.structures_field,
+            type_block=type_block,
             config=_base64_payload(render_config.behaviour_json()),
             render_js=self._render_js,
         )
@@ -137,6 +146,8 @@ class TemplateAssembler:
             .ro-arrowhead path {{ fill: var(--ro-accent); stroke: none; }}
             .ro-dot {{ fill: var(--ro-dot); stroke: #ffffff; stroke-width: 1.5; }}
             .ro-extra {{ margin-top: 14px; line-height: normal; font-size: 16px; }}
+            .ro-type {{ margin-top: 12px; line-height: normal; }}
+            .ro-type input {{ font-size: 16px; padding: 5px 8px; }}
             """
         ).format(variables=variables)
 

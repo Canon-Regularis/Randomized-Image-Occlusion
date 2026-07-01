@@ -27,6 +27,8 @@
     showTargetDot: true,
     promptText: "?",
     maxPlacementAttempts: 48,
+    showDecoyDots: true,
+    showContextLabels: false,
   };
 
   // ---- small utilities ------------------------------------------------------
@@ -105,29 +107,45 @@
     return merged;
   }
 
-  function readStructures() {
+  /**
+   * The note payload. v2 is `{direction, structures}`; v1 (older notes) was a
+   * bare structures array, treated as forward. Self-describing so a note renders
+   * correctly regardless of the current global config.
+   */
+  function readData() {
     var el = document.getElementById("ro-data");
-    if (!el) return [];
-    var b64 = (el.textContent || "").trim();
-    if (!b64) return [];
-    try {
-      return JSON.parse(decodeBase64Utf8(b64));
-    } catch (e) {
-      return [];
+    var b64 = el ? (el.textContent || "").trim() : "";
+    var parsed = null;
+    if (b64) {
+      try {
+        parsed = JSON.parse(decodeBase64Utf8(b64));
+      } catch (e) {
+        parsed = null;
+      }
     }
+    if (Array.isArray(parsed)) {
+      return { direction: "forward", structures: parsed };
+    }
+    if (parsed && Array.isArray(parsed.structures)) {
+      return {
+        direction: parsed.direction || "forward",
+        structures: parsed.structures,
+      };
+    }
+    return { direction: "forward", structures: [] };
   }
 
   /**
-   * The active cloze ordinal tells us which structure this card is testing.
-   * Anki renders the active deletion as `<span class="cloze" data-ordinal="N">`
-   * and the others as `class="cloze-inactive"`, so `.cloze` selects the active.
+   * The active cloze ordinal identifies this card. Anki renders the active
+   * deletion as `<span class="cloze" data-ordinal="N">` and the others as
+   * `class="cloze-inactive"`, so `.cloze` selects the active one.
    */
-  function readActiveOrdinal(structures) {
+  function readActiveOrdinal() {
     var active = document.querySelector("#ro-ordinal .cloze");
     if (active && active.dataset && active.dataset.ordinal) {
-      return parseInt(active.dataset.ordinal, 10);
+      return parseInt(active.dataset.ordinal, 10) || 1;
     }
-    return structures.length ? structures[0].ord : null;
+    return 1;
   }
 
   function isBackSide() {
@@ -249,14 +267,19 @@
     svg.appendChild(defs);
   }
 
-  /**
-   * Render the single prompt box + arrow + target dot for `structure` onto the
-   * (already cleared) svg. `text` is what the box shows ("?" front, label back).
-   */
-  function drawStructure(svg, stage, structure, text, cfg) {
-    var target = { x: structure.x * stage.w, y: structure.y * stage.h };
+  /** Draw a target marker at `target` ({x, y} in pixels). */
+  function drawDot(svg, target) {
+    svg.appendChild(
+      svgEl("circle", { class: "ro-dot", cx: target.x, cy: target.y, r: "5" })
+    );
+  }
 
-    // Build the label group first so we can measure the text, then size + place.
+  /**
+   * Draw a labelled box centred at `center` with a leader-line arrow to `target`.
+   * Placement is decided by the caller (so front and back agree); this only
+   * measures the text, sizes the box symmetrically around the centre, and draws.
+   */
+  function drawBox(svg, center, target, text, cfg, showArrow) {
     var group = svgEl("g", { class: "ro-box" });
     var rect = svgEl("rect", { class: "ro-box-rect", rx: "6", ry: "6" });
     var label = svgEl("text", {
@@ -278,45 +301,85 @@
       textLen = String(text).length * 9;
     }
     var fontSize = parseFloat(window.getComputedStyle(label).fontSize) || 18;
-    var boxSize = {
+    var box = {
       w: Math.max(36, textLen + padX * 2),
       h: Math.max(30, fontSize + padY * 2),
     };
-
-    var rng = svg.__roRng;
-    var center = placeCenter(rng, stage, target, cfg);
-    var box = {
-      x: center.x - boxSize.w / 2,
-      y: center.y - boxSize.h / 2,
-      w: boxSize.w,
-      h: boxSize.h,
-    };
+    box.x = center.x - box.w / 2;
+    box.y = center.y - box.h / 2;
 
     rect.setAttribute("x", box.x);
     rect.setAttribute("y", box.y);
     rect.setAttribute("width", box.w);
     rect.setAttribute("height", box.h);
-    label.setAttribute("x", box.x + box.w / 2);
-    label.setAttribute("y", box.y + box.h / 2);
+    label.setAttribute("x", center.x);
+    label.setAttribute("y", center.y);
 
-    var start = boxBorderToward(box, target);
-    var line = svgEl("line", {
-      class: "ro-arrow",
-      x1: start.x,
-      y1: start.y,
-      x2: target.x,
-      y2: target.y,
-      "marker-end": "url(#ro-arrowhead)",
-    });
-    // Insert the arrow beneath the box group so the arrowhead reads cleanly.
-    svg.insertBefore(line, group);
+    if (showArrow) {
+      var start = boxBorderToward(box, target);
+      var line = svgEl("line", {
+        class: "ro-arrow",
+        x1: start.x,
+        y1: start.y,
+        x2: target.x,
+        y2: target.y,
+        "marker-end": "url(#ro-arrowhead)",
+      });
+      // Insert the arrow beneath the box group so the arrowhead reads cleanly.
+      svg.insertBefore(line, group);
+    }
+  }
 
-    if (cfg.showTargetDot) {
-      svg.insertBefore(
-        svgEl("circle", { class: "ro-dot", cx: target.x, cy: target.y, r: "5" }),
-        group
+  /**
+   * Placement for context-label mode: a box centre for EVERY structure, kept
+   * apart from the other centres and from every target dot. Size-independent
+   * (uses a nominal separation, not the text width) so the front and back agree.
+   * Deterministic given the seeded rng.
+   */
+  function placeCenters(rng, stage, targets, cfg) {
+    var diag = Math.hypot(stage.w, stage.h);
+    var minLen = cfg.minArrowFraction * diag;
+    var maxLen = Math.max(minLen + 1, 0.5 * diag);
+    var marginX = stage.w * 0.14;
+    var marginY = stage.h * 0.1;
+    var sep = Math.min(stage.w, stage.h) * 0.2;
+
+    var centers = [];
+    for (var i = 0; i < targets.length; i++) {
+      var target = targets[i];
+      var best = null;
+      var bestScore = -Infinity;
+      for (var a = 0; a < cfg.maxPlacementAttempts; a++) {
+        var angle = rng() * Math.PI * 2;
+        var length = minLen + rng() * (maxLen - minLen);
+        var cx = clamp(target.x + Math.cos(angle) * length, marginX, stage.w - marginX);
+        var cy = clamp(target.y + Math.sin(angle) * length, marginY, stage.h - marginY);
+        var score = Infinity;
+        for (var j = 0; j < centers.length; j++) {
+          score = Math.min(score, Math.hypot(cx - centers[j].x, cy - centers[j].y));
+        }
+        for (var k = 0; k < targets.length; k++) {
+          if (k !== i) {
+            score = Math.min(score, Math.hypot(cx - targets[k].x, cy - targets[k].y));
+          }
+        }
+        if (score >= sep) {
+          best = { x: cx, y: cy };
+          break;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x: cx, y: cy };
+        }
+      }
+      centers.push(
+        best || {
+          x: clamp(target.x + minLen, marginX, stage.w - marginX),
+          y: clamp(target.y, marginY, stage.h - marginY),
+        }
       );
     }
+    return centers;
   }
 
   // ---- orchestration --------------------------------------------------------
@@ -334,21 +397,13 @@
     var height = rect.height;
     if (!width || !height) return; // image not laid out yet; a later pass will retry
 
-    var structures = readStructures();
+    var data = readData();
+    var structures = data.structures;
     if (!structures.length) return;
 
     var cfg = readConfig();
     var back = isBackSide();
-    var activeOrdinal = readActiveOrdinal(structures);
-
-    var structure = null;
-    for (var i = 0; i < structures.length; i++) {
-      if (structures[i].ord === activeOrdinal) {
-        structure = structures[i];
-        break;
-      }
-    }
-    if (!structure) structure = structures[0];
+    var activeOrdinal = readActiveOrdinal();
 
     // Seed lifecycle (this is what keeps front and back identical while still
     // randomising every review):
@@ -375,11 +430,68 @@
     svg.setAttribute("height", height);
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    svg.__roRng = makeRng(seed);
     ensureArrowMarker(svg);
 
-    var text = back ? structure.label : cfg.promptText;
-    drawStructure(svg, { w: width, h: height }, structure, text, cfg);
+    var rng = makeRng(seed);
+    var stage = { w: width, h: height };
+
+    // Map the active cloze ordinal to a structure and a card direction. In
+    // "both" mode each structure owns two consecutive ordinals (forward, then
+    // reverse); otherwise the ordinal is the structure's 1-based index.
+    var activeIndex;
+    var cardDir;
+    if (data.direction === "both") {
+      activeIndex = Math.floor((activeOrdinal - 1) / 2);
+      cardDir = activeOrdinal % 2 === 1 ? "forward" : "reverse";
+    } else {
+      activeIndex = activeOrdinal - 1;
+      cardDir = data.direction === "reverse" ? "reverse" : "forward";
+    }
+    if (activeIndex < 0 || activeIndex >= structures.length) activeIndex = 0;
+
+    // Project every structure to pixel space.
+    var targets = [];
+    for (var t = 0; t < structures.length; t++) {
+      targets.push({
+        x: structures[t].x * width,
+        y: structures[t].y * height,
+        label: structures[t].label,
+      });
+    }
+    var active = targets[activeIndex];
+
+    // Reverse cards ("given the name, locate it") show the label with NO arrow
+    // on the question side; the arrow (revealing the location) appears on the
+    // answer side. Forward cards show "?" + arrow, revealing the label on flip.
+    var isReverse = cardDir === "reverse";
+    var activeText = !back && !isReverse ? cfg.promptText : active.label;
+    var activeArrow = back || !isReverse;
+
+    if (cfg.showContextLabels) {
+      var centers = placeCenters(rng, stage, targets, cfg);
+      for (var d = 0; d < targets.length; d++) drawDot(svg, targets[d]);
+      for (var b = 0; b < targets.length; b++) {
+        if (b === activeIndex) {
+          drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow);
+        } else {
+          drawBox(svg, centers[b], targets[b], targets[b].label, cfg, true);
+        }
+      }
+    } else {
+      // Decoy dots (all markers) force the learner to follow the arrow to the
+      // right one instead of recognising a lone dot.
+      if (cfg.showDecoyDots) {
+        for (var e = 0; e < targets.length; e++) drawDot(svg, targets[e]);
+      } else if (cfg.showTargetDot) {
+        drawDot(svg, active);
+      }
+      var center = placeCenter(rng, stage, active, cfg);
+      drawBox(svg, center, active, activeText, cfg, activeArrow);
+    }
+
+    // Type-to-answer doesn't apply to reverse ("locate") cards — hide the box.
+    var typeEl = document.querySelector(".ro-type");
+    if (typeEl) typeEl.style.display = isReverse ? "none" : "";
   }
 
   /** Defer until the image is laid out, then render (and re-render on resize). */

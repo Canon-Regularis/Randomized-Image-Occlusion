@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from .structure import Structure
 
 
+def _cloze_escape(label: str) -> str:
+    """Neutralise cloze metacharacters so a label is safe as a cloze answer."""
+    return label.replace("{{", "{").replace("}}", "}").replace("::", ":")
+
+
 @dataclass(frozen=True, slots=True)
 class StructureSet:
     """All structures marked on one image, forming one Anki note.
@@ -100,14 +105,46 @@ class StructureSet:
 
     # -- anki helpers ----------------------------------------------------------
 
-    def cloze_field(self) -> str:
+    def cloze_field(self, direction: str = "forward") -> str:
         """The contents of the hidden cloze field that generates the cards.
 
-        Produces ``{{c1::1}}{{c2::2}}...{{cN::N}}``. Each ``{{cN::...}}`` makes
-        Anki emit one card; at review time the renderer reads the *active*
-        cloze's ``data-ordinal`` to learn which structure this card is testing.
+        Each ``{{cN::...}}`` makes Anki emit one card; the renderer reads the
+        active cloze's ``data-ordinal`` to learn which structure/direction this
+        card is. The label is the cloze answer so "type-to-answer" mode
+        (``{{type:cloze:...}}``) can grade what the learner types, and labels are
+        escaped so cloze syntax can't break the field.
+
+        For ``direction == "both"`` each structure gets two consecutive
+        ordinals (a forward and a reverse card); otherwise one each.
         """
-        return "".join(f"{{{{c{s.ordinal}::{s.ordinal}}}}}" for s in self.ordered)
+        ordered = self.ordered
+        if direction == "both":
+            parts = []
+            for index, structure in enumerate(ordered):
+                answer = _cloze_escape(structure.label)
+                parts.append(f"{{{{c{2 * index + 1}::{answer}}}}}")
+                parts.append(f"{{{{c{2 * index + 2}::{answer}}}}}")
+            return "".join(parts)
+        return "".join(
+            f"{{{{c{s.ordinal}::{_cloze_escape(s.label)}}}}}" for s in ordered
+        )
+
+    def to_payload_base64(self, direction: str = "forward") -> str:
+        """Base64 of the per-note payload the renderer reads.
+
+        Carries the direction alongside every structure, so a note renders
+        correctly regardless of the current global config (self-describing).
+        """
+        payload = {
+            "v": 2,
+            "direction": direction,
+            "structures": [s.to_dict() for s in self.ordered],
+        }
+        return base64.b64encode(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).decode("ascii")
 
     def labels(self) -> Iterable[str]:
         return (s.label for s in self.ordered)

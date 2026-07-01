@@ -29,7 +29,7 @@ def test_build_populates_all_fields():
     assert set(content.fields) == set(DEFAULT_SPEC.fields)
     assert content.fields["Header"] == "Heart"
     assert content.fields["Back Extra"] == "see Gray's"
-    assert content.fields["Ordinals"] == "{{c1::1}}{{c2::2}}"
+    assert content.fields["Ordinals"] == "{{c1::Aorta}}{{c2::Vena cava}}"
 
 
 def test_image_field_is_an_img_tag_with_escaped_filename():
@@ -43,9 +43,25 @@ def test_image_field_is_an_img_tag_with_escaped_filename():
     assert "&quot;" in html and "&amp;" in html
 
 
-def test_structures_field_decodes_back_to_the_set():
+def test_structures_field_is_a_self_describing_payload():
+    import base64
+    import json
+
     structures = _structures()
     content = NoteFactory(DEFAULT_SPEC).build(
-        image_filename="x.png", structures=structures, deck_name="d"
+        image_filename="x.png", structures=structures, deck_name="d", direction="both"
     )
-    assert StructureSet.from_base64(content.fields["Structures"]) == structures
+    payload = json.loads(base64.b64decode(content.fields["Structures"]).decode("utf-8"))
+    assert payload["direction"] == "both"
+    restored = StructureSet.from_json(json.dumps(payload["structures"]))
+    assert restored == structures
+
+
+def test_both_direction_doubles_the_cloze_ordinals():
+    content = NoteFactory(DEFAULT_SPEC).build(
+        image_filename="x.png", structures=_structures(), deck_name="d", direction="both"
+    )
+    assert (
+        content.fields["Ordinals"]
+        == "{{c1::Aorta}}{{c2::Aorta}}{{c3::Vena cava}}{{c4::Vena cava}}"
+    )

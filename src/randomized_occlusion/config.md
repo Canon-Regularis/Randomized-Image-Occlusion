@@ -11,6 +11,10 @@ refreshed automatically the next time a profile is opened.
 | `show_target_dot` | Draw a dot on the structure the arrow points at. |
 | `prompt_text` | Text shown inside the prompt box on the question side. |
 | `max_placement_attempts` | How hard the placement algorithm tries to find a clean, in-bounds spot before falling back. |
+| `show_decoy_dots` | Show a marker on **every** structure, not just the tested one, so you must follow the arrow to the correct spot instead of recognising a lone dot. |
+| `show_context_labels` | Reveal the **other** structures' labels at shuffled positions as context (like "hide one, guess one"). Overrides `show_decoy_dots` when on. |
+| `interaction` | `"reveal"` = flip the card to see the label; `"type"` = type the structure's name and let Anki grade it (stronger active recall). |
+| `direction` | `"forward"` = name the arrowed structure; `"reverse"` = given the name, locate the structure; `"both"` = one of each per structure. Applies to newly created cards. |
 | `accent_color` | Colour of the arrow, prompt-box border, and target dot. |
 | `box_fill` | Background colour of the prompt box. |
 | `box_text_color` | Text colour inside the prompt box. |
