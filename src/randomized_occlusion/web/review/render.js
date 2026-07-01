@@ -590,7 +590,7 @@
       });
     }
 
-    return { paint: paint, focusInput: focusInput };
+    return { paint: paint, focusInput: focusInput, seed: seed };
   }
 
   /** Single-card mode: interactive cycler on the front, answer key on the back. */
@@ -615,11 +615,20 @@
     var bar = ensureCyclerBar();
     if (!bar) return;
     bar.style.display = "";
+    var created = false;
     if (!bar.__roController) {
       bar.__roController = makeCycler(structures, seed, cfg, bar);
+      created = true;
     }
+    // The controller's captured seed is the source of truth for the whole front
+    // interaction; write it back so the back's answer key reproduces the same
+    // layout even if a resize on the mint=false path re-minted a different seed.
+    writeSeed(bar.__roController.seed);
     bar.__roController.paint();
-    bar.__roController.focusInput();
+    // Auto-focus only on genuine (re)creation — never on a resize repaint, which
+    // would steal focus and re-pop the mobile keyboard mid-review. next() handles
+    // focusing when the learner deliberately advances.
+    if (created) bar.__roController.focusInput();
   }
 
   // ---- orchestration --------------------------------------------------------
