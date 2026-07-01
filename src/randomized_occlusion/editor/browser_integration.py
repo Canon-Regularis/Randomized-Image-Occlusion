@@ -95,4 +95,10 @@ class BrowserEditIntegration:
             edit=EditContext(note_id=int(note_id), loaded=loaded),
         )
         self._dialog = dialog
+        # Drop the strong reference once closed; the dialog deletes itself on
+        # finish, so keeping a stale wrapper would leak (and could dangle).
+        qconnect(dialog.finished, self._on_dialog_finished)
         dialog.show()
+
+    def _on_dialog_finished(self, _result: int) -> None:
+        self._dialog = None

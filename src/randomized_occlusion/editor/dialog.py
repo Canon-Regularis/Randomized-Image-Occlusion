@@ -357,9 +357,25 @@ class MarkerDialog(QDialog):
         if not self._has_image():
             showWarning("Load an image before saving.")
             return
+        # Reading the markers is an async round-trip to the webview. Freeze the
+        # image controls until it returns so the picture can't be swapped in that
+        # window — otherwise the markers we're about to capture (which belong to
+        # the image shown *now*) could be paired with a different image.
+        self._freeze_for_save(True)
         self.web.evalWithCallback("ROEditor.getMarkers()", self._on_markers)
 
+    def _freeze_for_save(self, frozen: bool) -> None:
+        self._load_button.setEnabled(not frozen)
+        save = self._buttons.button(QDialogButtonBox.StandardButton.Save)
+        if save is not None:
+            save.setEnabled(not frozen)
+        if not frozen:
+            self._update_save_enabled()
+
     def _on_markers(self, markers: Any) -> None:
+        # Markers are now captured for the image that was shown when Save ran;
+        # it is safe to let the image be changed again.
+        self._freeze_for_save(False)
         if not self._has_image():  # image was cleared between Save and callback
             return
         if not isinstance(markers, list) or not markers:
@@ -483,3 +499,7 @@ class MarkerDialog(QDialog):
         cleanup = getattr(self.web, "cleanup", None)
         if callable(cleanup):
             cleanup()
+        # The dialog is parented to the main window, so closing it only hides it;
+        # schedule its deletion so repeated opens (especially edits from the
+        # Browser) don't accumulate hidden dialogs for the whole session.
+        self.deleteLater()
