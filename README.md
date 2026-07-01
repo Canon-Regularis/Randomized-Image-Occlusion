@@ -1,106 +1,126 @@
 # Randomized Image Occlusion
 
-An Anki add-on — *image occlusion, but better.*
+*Anki image occlusion — but you can't cheat.*
 
-Standard image occlusion hides a label at a **fixed** spot on a picture. Over
-time you stop recalling the structure and start recalling the **position**: "the
-box in the top-left is the aorta." That's spatial memorisation, not knowledge.
+An Anki add-on for studying labelled diagrams: anatomy cross-sections, the
+brachial plexus, histology slides, bones, ECGs, etc.
 
-This add-on breaks that crutch. On **every review** it places the prompt box at a
-**randomised** location and draws a leader-line arrow from the box to the
-structure's fixed point. You can't lean on where the box is — you have to follow
-the arrow and identify what it actually points at.
-
-> Built as a request for Ezra. 💛
+> **Built for Ezra** - a medical student at the University of Glasgow, whose idea
+> and request this whole thing grew out of. 💛 See [Thanks](#thanks).
 
 ---
 
-## How it works
+## The problem it fixes
 
-* You load an image and click each structure to drop a numbered marker, typing a
-  label for each. Coordinates are stored **normalized** (fractions of the image),
-  so cards render correctly at any size or zoom.
-* Each marker becomes one card (via Anki cloze ordinals — one note, many cards),
-  exactly like Anki's built-in "hide one, guess one".
-* At review time, a small renderer (baked into the card template, so it works on
-  AnkiDroid/AnkiMobile **without** the add-on installed):
-  1. reads the structures and which one this card tests,
-  2. mints a per-review random **seed**, shared front→back via `sessionStorage`
-     so the question and answer sides agree on the layout,
-  3. places the prompt box at a random in-bounds spot away from the target, and
-  4. draws an arrow from the box to the structure (a `?` on the front, the label
-     on the back).
+Normal image occlusion hides a label on a diagram and asks you to recall it. It
+works - until it doesn't. Because the hidden box always sits in the **same spot**,
+your brain quietly starts taking a shortcut: you remember *"the box in the
+top-left is the aorta"* from **where it is**, not because you actually recognise
+the aorta.
 
-Randomisation is **purely presentational** — it never touches scheduling/FSRS.
+That's spatial memory doing your revision for you. It feels like you know the
+diagram. Then the exam shows the same structure from a slightly different angle,
+and it's gone.
+
+## What it does instead
+
+Every single time a card comes up, this add-on drops the answer box in a
+**random place** on the image and draws an arrow from the box to the real
+structure. There's no fixed position to lean on: you have to follow the arrow
+and genuinely identify what it's pointing at.
+
+Same idea as image occlusion. Same one-click workflow. It just refuses to let you
+memorise the layout instead of the material.
+
+The shuffling is purely visual: it **never** touches Anki's scheduling or your
+review history. Your stats and FSRS stay exactly as they were.
+
+## Extra study modes (optional)
+
+You can leave everything on its sensible defaults, or turn on:
+
+- **Type the answer** - type the structure's name and let Anki grade it, instead
+  of flipping to reveal.
+- **Reverse cards** - instead of *"what is this?"*, get *"where is the X?"* and
+  find it. Or **both** directions per structure.
+- **Context labels** - show the surrounding labels while you answer, the way
+  "hide one, guess one" occlusion does.
+- **Single-card mode** - put a whole diagram on **one** card that cycles through
+  every label in a fresh random order each review, with a running counter.
+
+Works in both light and dark mode, and on your phone (AnkiDroid / AnkiMobile) —
+the card carries everything it needs, so it renders even where the add-on isn't
+installed.
+
+---
 
 ## Requirements
 
-* Anki **23.10+** (`min_point_version` 231000), Qt6.
+Anki **23.10 or newer** (desktop).
 
-## Install (development)
+## How to install it
 
-Anki loads add-ons from its `addons21/` folder. Symlink this package in:
+**The easy way - from AnkiWeb** (listed as **magnolia**):
 
-```sh
-# Windows (PowerShell, as admin)
-New-Item -ItemType SymbolicLink `
-  -Path "$env:APPDATA\Anki2\addons21\randomized_occlusion" `
-  -Target "<repo>\src\randomized_occlusion"
+1. In Anki, go to **Tools → Add-ons → Get Add-ons…**.
+2. Paste in the code **`1836497069`** and click **OK**.
+3. Restart Anki.
 
-# macOS / Linux
-ln -s "<repo>/src/randomized_occlusion" \
-  "~/.local/share/Anki2/addons21/randomized_occlusion"
-```
+You can also find the listing here:
+<https://ankiweb.net/shared/info/1836497069>.
 
-Restart Anki, then open **Tools → Randomized Image Occlusion…**.
+**Or install from a file** (e.g. before it finished syncing to AnkiWeb):
 
-## Build a distributable add-on
+1. Download `randomized_occlusion.ankiaddon` from the
+   [Releases page](../../releases).
+2. Open Anki and go to **Tools → Add-ons → Install from file…**, then pick the
+   file you just downloaded. (On most computers you can also just double-click
+   the file.)
+3. Restart Anki.
 
-```sh
-python build.py    # writes dist/randomized_occlusion.ankiaddon
-```
+Either way, you'll now see **Tools → Randomized Image Occlusion…** in the menu.
 
-Double-click the `.ankiaddon` to install, or upload it to AnkiWeb.
+## How to use it
 
-## Develop & test
+1. Go to **Tools → Randomized Image Occlusion…**.
+2. Click **Load image…** and choose your diagram.
+3. Click each structure on the image to drop a numbered marker, and type its
+   label. Repeat for every part you want to learn.
+4. *(Optional)* Add a header, some back-of-card notes, pick a deck, and choose any
+   of the study modes above.
+5. Click **Save**. Your cards are added to the deck.
+
+Then just review like any other Anki cards. Each time, the prompt box lands
+somewhere new with an arrow to the structure - so you're always answering *"what
+is this?"*, never *"what usually goes in this corner?"*.
+
+## Settings
+
+Prefer different colours, a longer minimum arrow, or a different default mode?
+Everything is adjustable under **Tools → Add-ons → Randomized Image Occlusion →
+Config**. Each option is documented in
+[`config.md`](src/randomized_occlusion/config.md).
+
+---
+
+## Thanks
+
+This add-on exists because **Ezra**!
+
+## For developers
+
+The code lives in [`src/randomized_occlusion/`](src/randomized_occlusion/). The
+core logic has no dependency on Anki and is fully unit-tested; only the thin
+editor and menu shells need Anki to run.
 
 ```sh
 pip install -e ".[dev]"
-pytest          # unit tests for the Anki-independent layers
-ruff check .
-mypy
+pytest            # run the tests
+ruff check .      # lint
+mypy              # type-check
+python build.py   # writes dist/randomized_occlusion.ankiaddon
 ```
 
-The domain, config, note-type, and factory layers have **no Anki dependency** and
-are fully unit tested. Only the thin editor/bootstrap shells require Anki.
+## License
 
-## Architecture
-
-The package is layered so that business logic never depends on Anki directly;
-adapters ("gateways") invert that dependency, which keeps the core testable.
-
-```text
-src/randomized_occlusion/
-├── __init__.py          # entry point; runs bootstrap only when aqt is present
-├── bootstrap.py         # composition root: wires the menu + install hook
-├── resources.py         # locates bundled web assets
-├── domain/              # pure value objects: NormalizedPoint, Structure, StructureSet
-├── config/              # defaults, ConfigService (+ provider abstraction), RenderConfig
-├── notetype/            # NoteTypeSpec, TemplateAssembler, NoteTypeInstaller
-├── collection/          # ModelGateway/MediaGateway (+ Anki impls), NoteFactory
-├── ops/                 # the single undo-safe CollectionOp that adds notes
-├── editor/              # MarkerBridge (pure) + Qt MarkerDialog + EditorLauncher
-└── web/
-    ├── review/render.js # the review-time renderer (embedded into the template)
-    └── editor/          # the image-marking canvas (marker.html/js/css)
-```
-
-Design notes:
-
-* **Dependency inversion** — `NoteTypeInstaller` and the ops depend on the
-  `ModelGateway`/`MediaGateway` `Protocol`s, not on `col.models`/`col.media`. The
-  in-memory fakes used in tests are Liskov-substitutable for the real gateways.
-* **Single responsibility** — the note type is described (`spec`), assembled
-  (`templates`), and installed (`installer`) by three separate collaborators.
-* **One place to mutate** — every database change happens inside one
-  `CollectionOp`, so the whole "add a card" action is a single undo step.
+See [LICENSE](LICENSE).
