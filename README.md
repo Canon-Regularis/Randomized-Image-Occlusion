@@ -94,6 +94,15 @@ Then just review like any other Anki cards. Each time, the prompt box lands
 somewhere new with an arrow to the structure - so you're always answering *"what
 is this?"*, never *"what usually goes in this corner?"*.
 
+### Editing a card later
+
+Made a typo, or want to nudge a marker? Open the **Browse** window, right-click
+the card, and choose **Edit with Randomized Image Occlusion**. The image and all
+its markers reappear on the canvas exactly as you left them - move them, rename
+them, add or remove structures, change the study mode, then **Save**. Anki
+updates the card (and adds or removes cards if you changed the number of markers)
+in a single undo step.
+
 ## Settings
 
 Prefer different colours, a longer minimum arrow, or a different default mode?

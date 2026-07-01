@@ -8,7 +8,10 @@
  * Python <-> JS contract:
  *   JS  -> Py : pycmd("ro:ready")            once the page is interactive
  *               pycmd("ro:count:<n>")        whenever the marker count changes
- *   Py  -> JS : ROEditor.setImage(dataUrl)   show an image (resets markers)
+ *   Py  -> JS : ROEditor.setImage(dataUrl, markers?)
+ *                                            show an image; markers (optional,
+ *                                            [{x, y, label}, ...]) pre-populate
+ *                                            it for editing, else it starts empty
  *               ROEditor.getMarkers()        -> [{x, y, label}, ...]
  */
 window.ROEditor = (function () {
@@ -150,16 +153,31 @@ window.ROEditor = (function () {
 
   // ---- public API (called from Python) --------------------------------------
 
-  function setImage(dataUrl) {
+  function normalizeMarkers(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(function (m) {
+      return {
+        x: clamp01(Number(m.x) || 0),
+        y: clamp01(Number(m.y) || 0),
+        label: m.label == null ? "" : String(m.label),
+      };
+    });
+  }
+
+  function setImage(dataUrl, initialMarkers) {
     var img = el("ed-img");
     var empty = el("ed-empty");
-    markers = [];
+    // Editing re-opens a note with its existing markers; creating passes none.
+    markers = normalizeMarkers(initialMarkers);
     if (empty) empty.style.display = "none";
     img.onload = function () {
       render();
     };
     img.style.display = "block";
     img.src = dataUrl;
+    // Render the list now (it needs no image geometry) so pre-loaded labels show
+    // immediately; the overlay dots follow once the image reports its size.
+    render();
     notifyCount();
   }
 

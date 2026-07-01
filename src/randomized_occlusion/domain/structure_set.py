@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from .card_options import CardMode, CardOptions, Direction
 from .codec import encode_json_b64
-from .structure import Structure
+from .structure import Structure, StructureDict
 
 __all__ = ["StructureSet"]
 
@@ -73,8 +73,8 @@ class StructureSet:
     # -- serialization ---------------------------------------------------------
 
     @classmethod
-    def from_json(cls, payload: str) -> StructureSet:
-        """Deserialize a JSON array of structure dicts (the payload's
+    def from_dicts(cls, items: Sequence[StructureDict]) -> StructureSet:
+        """Build a set from already-parsed structure dicts (the payload's
         ``structures``).
 
         Ordinals must already be contiguous ``1..N``. Unlike
@@ -82,8 +82,13 @@ class StructureSet:
         cloze card ordinals, so a corrupt/hand-edited payload with gaps should
         surface as an error rather than be silently (and wrongly) renumbered.
         """
-        data = json.loads(payload)
-        return cls(structures=tuple(Structure.from_dict(item) for item in data))
+        return cls(structures=tuple(Structure.from_dict(item) for item in items))
+
+    @classmethod
+    def from_json(cls, payload: str) -> StructureSet:
+        """Deserialize a JSON array of structure dicts (the payload's
+        ``structures``)."""
+        return cls.from_dicts(json.loads(payload))
 
     # -- anki helpers ----------------------------------------------------------
 
