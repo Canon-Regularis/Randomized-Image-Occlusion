@@ -35,6 +35,50 @@ memorise the layout instead of the material.
 The shuffling is purely visual: it **never** touches Anki's scheduling or your
 review history. Your stats and FSRS stay exactly as they were.
 
+## See it in action
+
+### Setting up the card maker
+
+<p align="center">
+  <img src="docs/images/setup.gif" alt="Entering the setup: navigating to the drop-down menu." width="520"><br>
+  <em>Entering the setup: navigating to the drop-down menu.</em>
+</p>
+
+### Labelling a card
+
+<p align="center">
+  <img src="docs/images/labelling.gif" alt="Labelling a card: setting up markers for occlusion." width="520"><br>
+  <em>Labelling a card: setting up markers for occlusion.</em>
+</p>
+
+### Moving card occlusion markers
+
+<p align="center">
+  <img src="docs/images/moving.gif" alt="Moving card markers: moving occlusion markers around the card." width="520"><br>
+  <em>Moving card markers: moving occlusion markers around the card.</em>
+</p>
+
+### Deleting card occlusion markers
+
+<p align="center">
+  <img src="docs/images/deleting.gif" alt="Deleting card markers: deleting and reinstating individual occlusion markers." width="520"><br>
+  <em>Deleting card markers: deleting and reinstating individual occlusion markers.</em>
+</p>
+
+### Filling card occlusion metadata
+
+<p align="center">
+  <img src="docs/images/metadata.gif" alt="Filling card metadata: filling in card occlusion metadata." width="520"><br>
+  <em>Filling card metadata: filling in card occlusion metadata.</em>
+</p>
+
+### Demo test run
+
+<p align="center">
+  <img src="docs/images/review.gif" alt="Reviewing a card: the prompt box lands somewhere new each time, with an arrow to the structure." width="520"><br>
+  <em>Reviewing a card: the prompt box lands somewhere new each time, with an arrow to the structure.</em>
+</p>
+
 ## Extra study modes (optional)
 
 You can leave everything on its sensible defaults, or turn on:

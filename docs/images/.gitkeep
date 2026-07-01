@@ -1,0 +1,3 @@
+# Screenshots and demo GIFs referenced by README.md live here.
+# This folder is outside src/randomized_occlusion/, so images are NOT bundled
+# into the .ankiaddon (build.py only packages the add-on package).
