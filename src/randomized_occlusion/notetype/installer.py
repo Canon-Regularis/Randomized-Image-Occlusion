@@ -37,10 +37,7 @@ class NoteTypeInstaller:
         self._spec = spec
 
     def ensure_installed(self, render_config: RenderConfig) -> InstallResult:
-        front = self._assembler.front(render_config)
-        back = self._assembler.back()
-        css = self._assembler.css(render_config)
-        fingerprint = self._assembler.fingerprint(render_config)
+        template = self._assembler.assemble(render_config)
 
         existing = self._gateway.find(self._spec.name)
         if existing is None:
@@ -49,9 +46,9 @@ class NoteTypeInstaller:
                 fields=self._spec.fields,
                 sort_index=self._spec.sort_index,
                 template_name=self._spec.template_name,
-                front=front,
-                back=back,
-                css=css,
+                front=template.front,
+                back=template.back,
+                css=template.css,
                 collapsed_fields=self._spec.collapsed_fields,
             )
             return InstallResult.CREATED
@@ -64,13 +61,15 @@ class NoteTypeInstaller:
         collapse_changed = self._gateway.collapse_fields(
             existing, self._spec.collapsed_fields
         )
-        templates_stale = extract_fingerprint(existing.get("css", "")) != fingerprint
+        templates_stale = (
+            extract_fingerprint(existing.get("css", "")) != template.fingerprint
+        )
 
         if fields_changed or templates_stale:
             # update_templates persists the whole dict, including the mutations
             # above (added fields and collapse state).
             self._gateway.update_templates(
-                existing, front=front, back=back, css=css
+                existing, front=template.front, back=template.back, css=template.css
             )
             return InstallResult.UPDATED
         if collapse_changed:

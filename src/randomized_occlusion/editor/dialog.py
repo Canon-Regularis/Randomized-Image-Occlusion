@@ -260,6 +260,10 @@ class MarkerDialog(QDialog):
 
     def _on_count(self, count: int) -> None:
         self._marker_count = count
+        self._refresh_marker_state()
+
+    def _refresh_marker_state(self) -> None:
+        """Reflect the current marker count in the status line and Save button."""
         self._update_status()
         self._update_save_enabled()
 
@@ -302,8 +306,7 @@ class MarkerDialog(QDialog):
         self._new_image_path = path
         self._marker_count = 0
         self._display_from_path(path, None)
-        self._update_status()
-        self._update_save_enabled()
+        self._refresh_marker_state()
 
     def _display_from_path(
         self, path: str, markers: list[dict[str, Any]] | None
@@ -363,18 +366,38 @@ class MarkerDialog(QDialog):
         self._freeze_for_save(False)
         if not self._has_image():  # image was cleared between Save and callback
             return
+        structures = self._structures_from_markers(markers)
+        if structures is None:  # invalid input; the helper already told the user
+            return
+        result = MarkupResult(
+            structures=structures,
+            options=self._read_options(),
+            header=self._header_edit.text().strip(),
+            back_extra=self._extra_edit.toPlainText().strip(),
+            new_image_path=self._new_image_path,
+            existing_image_filename=self._existing_filename,
+            deck_name=(
+                self._deck_combo.currentText() if self._deck_combo is not None else None
+            ),
+        )
+        self._saver.save(self, result)
+
+    def _structures_from_markers(self, markers: Any) -> StructureSet | None:
+        """Validate the raw markers from the canvas into a StructureSet.
+
+        Returns ``None`` (after telling the user what's wrong) on any invalid
+        input, so the caller can simply bail.
+        """
         if not isinstance(markers, list) or not markers:
             showWarning("Add at least one marker before saving.")
-            return
-
+            return None
         invalid = [i for i, m in enumerate(markers) if not str(m.get("label", "")).strip()]
         if invalid:
             self.web.eval(f"ROEditor.markInvalid({json.dumps(invalid)})")
             showWarning("Every marker needs a label.")
-            return
-
+            return None
         try:
-            structures = StructureSet.from_unordered(
+            return StructureSet.from_unordered(
                 [
                     Structure(
                         ordinal=1,
@@ -386,9 +409,11 @@ class MarkerDialog(QDialog):
             )
         except (KeyError, ValueError) as exc:
             showWarning(f"Could not build the card:\n{exc}")
-            return
+            return None
 
-        options = CardOptions(
+    def _read_options(self) -> CardOptions:
+        """Read the card-option widgets into the immutable domain value object."""
+        return CardOptions(
             direction=_DIRECTION_CHOICES[self._direction_combo.currentIndex()][0],
             interaction=(
                 Interaction.TYPE if self._type_check.isChecked() else Interaction.REVEAL
@@ -396,18 +421,6 @@ class MarkerDialog(QDialog):
             context_labels=self._context_check.isChecked(),
             mode=_CARD_MODE_CHOICES[self._mode_combo.currentIndex()][0],
         )
-        result = MarkupResult(
-            structures=structures,
-            options=options,
-            header=self._header_edit.text().strip(),
-            back_extra=self._extra_edit.toPlainText().strip(),
-            new_image_path=self._new_image_path,
-            existing_image_filename=self._existing_filename,
-            deck_name=(
-                self._deck_combo.currentText() if self._deck_combo is not None else None
-            ),
-        )
-        self._saver.save(self, result)
 
     def finish_saved(self, message: str) -> None:
         """Called by a saver once persistence succeeds: notify and close."""

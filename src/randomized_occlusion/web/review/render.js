@@ -40,6 +40,12 @@
   var MIN_SEPARATION_FRACTION = 0.2; // min gap between box centres (multi/cycler)
   var ACCEPT_ARROW_FRACTION = 0.8; // accept a candidate whose arrow >= this * minLen
 
+  // Prompt-box sizing, in px (the box grows to fit its text but never smaller).
+  var BOX_PADDING_X = 12; // horizontal padding around the label text
+  var BOX_PADDING_Y = 8; // vertical padding around the label text
+  var BOX_MIN_WIDTH = 36; // keep even a one-character box legible/tappable
+  var BOX_MIN_HEIGHT = 30;
+
   // ---- small utilities ------------------------------------------------------
 
   /** Decode UTF-8-safe base64 into a string. */
@@ -60,6 +66,11 @@
       h = Math.imul(h, 16777619);
     }
     return h >>> 0;
+  }
+
+  /** A fresh random unsigned 32-bit seed (`>>> 0` forces the unsigned range). */
+  function randomUint32() {
+    return Math.floor(Math.random() * 0xffffffff) >>> 0;
   }
 
   /** mulberry32 — tiny seeded PRNG returning floats in [0, 1). */
@@ -267,6 +278,13 @@
     return el;
   }
 
+  /** Match the SVG's user-space to a pixel size (width/height/viewBox). */
+  function setSvgSize(svg, width, height) {
+    svg.setAttribute("width", width);
+    svg.setAttribute("height", height);
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  }
+
   function ensureArrowMarker(svg) {
     var defs = svgEl("defs");
     var marker = svgEl("marker", {
@@ -310,8 +328,6 @@
     group.appendChild(label);
     svg.appendChild(group);
 
-    var padX = 12;
-    var padY = 8;
     var textLen;
     try {
       textLen = label.getComputedTextLength();
@@ -320,8 +336,8 @@
     }
     var fontSize = parseFloat(window.getComputedStyle(label).fontSize) || 18;
     var box = {
-      w: Math.max(36, textLen + padX * 2),
-      h: Math.max(30, fontSize + padY * 2),
+      w: Math.max(BOX_MIN_WIDTH, textLen + BOX_PADDING_X * 2),
+      h: Math.max(BOX_MIN_HEIGHT, fontSize + BOX_PADDING_Y * 2),
     };
     box.x = center.x - box.w / 2;
     box.y = center.y - box.h / 2;
@@ -369,18 +385,26 @@
       var target = targets[i];
       var best = null;
       var bestScore = -Infinity;
-      for (var a = 0; a < cfg.maxPlacementAttempts; a++) {
+      // "score" is a candidate's smallest distance to any already-placed centre
+      // or any *other* target — maximising it spreads the boxes out.
+      for (var attempt = 0; attempt < cfg.maxPlacementAttempts; attempt++) {
         var angle = rng() * Math.PI * 2;
         var length = minLen + rng() * (maxLen - minLen);
-        var cx = clamp(target.x + Math.cos(angle) * length, marginX, stage.w - marginX);
-        var cy = clamp(target.y + Math.sin(angle) * length, marginY, stage.h - marginY);
+        var cx = clamp(target.x + Math.cos(angle) * length, marginX, maxX);
+        var cy = clamp(target.y + Math.sin(angle) * length, marginY, maxY);
         var score = Infinity;
-        for (var j = 0; j < centers.length; j++) {
-          score = Math.min(score, Math.hypot(cx - centers[j].x, cy - centers[j].y));
+        for (var placedIdx = 0; placedIdx < centers.length; placedIdx++) {
+          score = Math.min(
+            score,
+            Math.hypot(cx - centers[placedIdx].x, cy - centers[placedIdx].y),
+          );
         }
-        for (var k = 0; k < targets.length; k++) {
-          if (k !== i) {
-            score = Math.min(score, Math.hypot(cx - targets[k].x, cy - targets[k].y));
+        for (var otherIdx = 0; otherIdx < targets.length; otherIdx++) {
+          if (otherIdx !== i) {
+            score = Math.min(
+              score,
+              Math.hypot(cx - targets[otherIdx].x, cy - targets[otherIdx].y),
+            );
           }
         }
         if (score >= sep) {
@@ -418,9 +442,7 @@
     var w = rect.width;
     var h = rect.height;
     if (!w || !h) return null;
-    svg.setAttribute("width", w);
-    svg.setAttribute("height", h);
-    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    setSvgSize(svg, w, h);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     ensureArrowMarker(svg);
     return { w: w, h: h };
@@ -692,11 +714,11 @@
       var stored = readSeed();
       seed = stored !== null ? parseInt(stored, 10) >>> 0 : hashString("" + activeOrdinal + structures.length);
     } else if (mint) {
-      seed = (Math.floor(Math.random() * 0xffffffff)) >>> 0;
+      seed = randomUint32();
       writeSeed(seed);
     } else {
       var reused = readSeed();
-      seed = reused !== null ? parseInt(reused, 10) >>> 0 : (Math.floor(Math.random() * 0xffffffff)) >>> 0;
+      seed = reused !== null ? parseInt(reused, 10) >>> 0 : randomUint32();
       if (reused === null) writeSeed(seed);
     }
 
@@ -707,9 +729,7 @@
     }
 
     // Match the SVG's user-space to the image's displayed pixel size.
-    svg.setAttribute("width", width);
-    svg.setAttribute("height", height);
-    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    setSvgSize(svg, width, height);
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     ensureArrowMarker(svg);
 

@@ -5,11 +5,11 @@ from __future__ import annotations
 import traceback
 from typing import Any
 
-from aqt.qt import qconnect
 from aqt.utils import showInfo, showWarning
 
 from ..config.config_service import ConfigService
 from .dialog import MarkerDialog
+from .dialog_host import ModelessDialogHost
 from .savers import CreateNoteSaver
 
 
@@ -17,7 +17,7 @@ class EditorLauncher:
     def __init__(self, main_window: Any, config_service: ConfigService) -> None:
         self._mw = main_window
         self._config = config_service
-        self._dialog: MarkerDialog | None = None
+        self._host = ModelessDialogHost()
 
     def open(self, *_args: Any) -> None:
         # *_args absorbs the bool QAction.triggered emits, so this works whether
@@ -36,12 +36,4 @@ class EditorLauncher:
                 + traceback.format_exc()
             )
             return
-        # Hold a reference; a local would be collected and close the window.
-        self._dialog = dialog
-        # Release it on close so the self-deleting dialog isn't kept as a stale
-        # wrapper for the rest of the session.
-        qconnect(dialog.finished, self._on_dialog_finished)
-        dialog.show()
-
-    def _on_dialog_finished(self, _result: int) -> None:
-        self._dialog = None
+        self._host.present(dialog)

@@ -19,13 +19,13 @@ from __future__ import annotations
 from typing import Any
 
 from aqt import gui_hooks
-from aqt.qt import qconnect
 from aqt.utils import showWarning
 
 from ..collection.note_reader import LoadedNote, NoteReader
 from ..config.config_service import ConfigService
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
 from .dialog import MarkerDialog
+from .dialog_host import ModelessDialogHost
 from .savers import EditorFieldSaver
 
 __all__ = ["EditorIntegration"]
@@ -45,8 +45,7 @@ class EditorIntegration:
         self._mw = main_window
         self._config = config_service
         self._spec = spec
-        # Strong ref so the modeless canvas isn't garbage-collected while open.
-        self._dialog: MarkerDialog | None = None
+        self._host = ModelessDialogHost()
 
     def register(self) -> None:
         gui_hooks.editor_did_init_buttons.append(self._on_init_buttons)
@@ -97,7 +96,7 @@ class EditorIntegration:
         buttons.append(button)
 
     def _open(self, editor: Any) -> None:
-        if self._dialog is not None:
+        if self._host.is_showing():
             return  # one canvas at a time
         if self._mw.col is None:
             return
@@ -108,9 +107,7 @@ class EditorIntegration:
         prefill = self._read_prefill(note)
         saver = EditorFieldSaver(self._config, self._mw, editor, self._spec)
         dialog = MarkerDialog(self._mw, self._config, saver=saver, prefill=prefill)
-        self._dialog = dialog
-        qconnect(dialog.finished, self._on_dialog_finished)
-        dialog.show()
+        self._host.present(dialog)
 
     def _read_prefill(self, note: Any) -> LoadedNote | None:
         """Restore markers/options if the note already has occlusion data.
@@ -129,6 +126,3 @@ class EditorIntegration:
             return NoteReader(self._spec).read(fields)
         except Exception:
             return None
-
-    def _on_dialog_finished(self, _result: int) -> None:
-        self._dialog = None

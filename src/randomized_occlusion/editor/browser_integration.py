@@ -20,6 +20,7 @@ from ..collection.note_reader import NoteReader
 from ..config.config_service import ConfigService
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
 from .dialog import MarkerDialog
+from .dialog_host import ModelessDialogHost
 from .savers import UpdateNoteSaver
 
 __all__ = ["BrowserEditIntegration"]
@@ -39,8 +40,7 @@ class BrowserEditIntegration:
         self._mw = main_window
         self._config = config_service
         self._spec = spec
-        # Strong ref so the modeless dialog is not garbage-collected while open.
-        self._dialog: MarkerDialog | None = None
+        self._host = ModelessDialogHost()
 
     def register(self) -> None:
         gui_hooks.browser_will_show_context_menu.append(self._on_context_menu)
@@ -96,11 +96,4 @@ class BrowserEditIntegration:
             saver=UpdateNoteSaver(self._config, int(note_id), self._spec),
             prefill=loaded,
         )
-        self._dialog = dialog
-        # Drop the strong reference once closed; the dialog deletes itself on
-        # finish, so keeping a stale wrapper would leak (and could dangle).
-        qconnect(dialog.finished, self._on_dialog_finished)
-        dialog.show()
-
-    def _on_dialog_finished(self, _result: int) -> None:
-        self._dialog = None
+        self._host.present(dialog)

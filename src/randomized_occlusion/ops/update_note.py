@@ -15,8 +15,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from aqt.operations import CollectionOp
-
 from ..collection.gateways import AnkiMediaGateway
 from ..collection.note_factory import NoteFactory
 from ..config.render_config import RenderConfig
@@ -24,6 +22,7 @@ from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
 from ..notetype.factory import build_installer
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
+from .runner import run_note_op
 
 __all__ = ["UpdateRequest", "update_randomized_occlusion_note"]
 
@@ -91,7 +90,4 @@ def update_randomized_occlusion_note(
         col.update_note(note)
         return col.merge_undo_entries(undo_position)
 
-    operation = CollectionOp(parent=parent, op=op)
-    if on_success is not None:
-        operation = operation.success(on_success)
-    operation.run_in_background()
+    run_note_op(parent=parent, op=op, on_success=on_success)

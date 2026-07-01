@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from textwrap import dedent
 
 from ..config.render_config import RenderConfig
 from ..domain.codec import encode_json_b64
 from .spec import NoteTypeSpec
 
-__all__ = ["TEMPLATE_VERSION", "TemplateAssembler", "extract_fingerprint"]
+__all__ = [
+    "TEMPLATE_VERSION",
+    "AssembledTemplate",
+    "TemplateAssembler",
+    "extract_fingerprint",
+]
 
 #: Bump when the template *skeleton* (not the JS/CSS) changes, to force updates.
 TEMPLATE_VERSION = 1
@@ -28,6 +34,16 @@ def extract_fingerprint(css: str) -> str | None:
     """Recover the fingerprint embedded in an installed note type's CSS."""
     match = _FINGERPRINT_RE.search(css or "")
     return match.group(1) if match else None
+
+
+@dataclass(frozen=True, slots=True)
+class AssembledTemplate:
+    """The three strings Anki stores on a note type, plus their fingerprint."""
+
+    front: str
+    back: str
+    css: str  # includes the ``ro-fingerprint`` comment
+    fingerprint: str
 
 
 def _script_safe(text: str) -> str:
@@ -216,8 +232,24 @@ class TemplateAssembler:
         ).format(cloze=s.cloze_field, extra=s.back_extra_field)
 
     def css(self, render_config: RenderConfig) -> str:
-        fingerprint = self.fingerprint(render_config)
-        return f"/* ro-fingerprint:{fingerprint} */\n" + self._css_body(render_config)
+        return self.assemble(render_config).css
+
+    def fingerprint(self, render_config: RenderConfig) -> str:
+        return self.assemble(render_config).fingerprint
+
+    def assemble(self, render_config: RenderConfig) -> AssembledTemplate:
+        """Build the front, back, CSS, and fingerprint in a single pass.
+
+        The installer needs all four together; computing them here once avoids
+        rebuilding the (non-trivial) front/back/CSS several times, which the old
+        per-getter design did on every install check.
+        """
+        front = self.front(render_config)
+        back = self.back()
+        css_body = self._css_body(render_config)
+        fingerprint = self._fingerprint(front, back, css_body)
+        css = f"/* ro-fingerprint:{fingerprint} */\n" + css_body
+        return AssembledTemplate(front=front, back=back, css=css, fingerprint=fingerprint)
 
     def _css_body(self, render_config: RenderConfig) -> str:
         variables = "".join(
@@ -226,7 +258,8 @@ class TemplateAssembler:
         ).rstrip("\n")
         return _CARD_CSS.replace("__RO_VARIABLES__", variables)
 
-    def fingerprint(self, render_config: RenderConfig) -> str:
+    @staticmethod
+    def _fingerprint(front: str, back: str, css_body: str) -> str:
         """A short hash over everything that affects the rendered card.
 
         Hashes the *actual* assembled front, back, and CSS body (which already
@@ -235,12 +268,5 @@ class TemplateAssembler:
         and the installer refreshes already-installed note types. The CSS body
         is hashed *without* its own fingerprint comment to avoid self-reference.
         """
-        payload = "\n".join(
-            [
-                str(TEMPLATE_VERSION),
-                self.front(render_config),
-                self.back(),
-                self._css_body(render_config),
-            ]
-        )
+        payload = "\n".join([str(TEMPLATE_VERSION), front, back, css_body])
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]

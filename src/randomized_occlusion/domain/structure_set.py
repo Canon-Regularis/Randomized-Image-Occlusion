@@ -111,10 +111,14 @@ class StructureSet:
         ordered = self.ordered
         if options.direction == Direction.BOTH:
             parts = []
-            for index, structure in enumerate(ordered):
+            for structure in ordered:
                 answer = _cloze_escape(structure.label)
-                parts.append(f"{{{{c{2 * index + 1}::{answer}}}}}")
-                parts.append(f"{{{{c{2 * index + 2}::{answer}}}}}")
+                # Each structure owns two consecutive ordinals derived from its
+                # own ordinal (forward then reverse), matching the single branch
+                # below which also indexes off ``structure.ordinal``.
+                forward = 2 * structure.ordinal - 1
+                parts.append(f"{{{{c{forward}::{answer}}}}}")
+                parts.append(f"{{{{c{forward + 1}::{answer}}}}}")
             return "".join(parts)
         return "".join(
             f"{{{{c{s.ordinal}::{_cloze_escape(s.label)}}}}}" for s in ordered

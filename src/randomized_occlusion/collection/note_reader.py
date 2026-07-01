@@ -117,7 +117,11 @@ class NoteReader:
             raise ValueError("this note has no stored structures to edit")
         try:
             payload = decode_json_b64(encoded)
-        except Exception as exc:  # binascii / unicode / json errors
+        except ValueError as exc:
+            # Every expected decode failure is a ValueError subclass: bad base64
+            # (binascii.Error), invalid UTF-8 (UnicodeDecodeError), and malformed
+            # JSON (json.JSONDecodeError). A genuine bug (AttributeError, etc.)
+            # raises something else and is deliberately left to surface.
             raise ValueError("this note's structure data could not be decoded") from exc
 
         if isinstance(payload, list):

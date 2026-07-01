@@ -43,9 +43,11 @@ window.ROEditor = (function () {
 
   function svgEl(name, attrs) {
     var node = document.createElementNS(SVG_NS, name);
-    for (var key in attrs) {
-      if (Object.prototype.hasOwnProperty.call(attrs, key)) {
-        node.setAttribute(key, attrs[key]);
+    if (attrs) {
+      for (var key in attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, key)) {
+          node.setAttribute(key, attrs[key]);
+        }
       }
     }
     return node;
