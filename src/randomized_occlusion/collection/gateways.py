@@ -60,11 +60,7 @@ class ModelGateway(Protocol):
         self, notetype: NotetypeDict, field_names: tuple[str, ...]
     ) -> bool:
         """Collapse the named fields in the editor (in place); return whether it
-        changed (the caller persists)."""
-        ...
-
-    def save(self, notetype: NotetypeDict) -> None:
-        """Persist a note-type dict that was mutated in place."""
+        changed (the caller persists via :meth:`update_templates`)."""
         ...
 
 
@@ -150,9 +146,6 @@ class AnkiModelGateway:
                 field["collapsed"] = True
                 changed = True
         return changed
-
-    def save(self, notetype: NotetypeDict) -> None:
-        self._models.update_dict(notetype)
 
 
 class AnkiMediaGateway:

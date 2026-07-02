@@ -65,15 +65,15 @@ class NoteTypeInstaller:
             extract_fingerprint(existing.get("css", "")) != template.fingerprint
         )
 
-        if fields_changed or templates_stale:
+        if fields_changed or collapse_changed or templates_stale:
             # update_templates persists the whole dict, including the mutations
-            # above (added fields and collapse state).
+            # above (added fields and collapse state). When only the collapse
+            # state changed, the freshly assembled strings are byte-identical to
+            # what's stored (same fingerprint), so re-assigning them is merely
+            # part of persisting the field mutation — one persistence path.
             self._gateway.update_templates(
                 existing, front=template.front, back=template.back, css=template.css
             )
-            return InstallResult.UPDATED
-        if collapse_changed:
-            self._gateway.save(existing)
             return InstallResult.UPDATED
 
         return InstallResult.UNCHANGED

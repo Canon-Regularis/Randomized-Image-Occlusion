@@ -59,9 +59,6 @@ class FakeModelGateway:
                 changed = True
         return changed
 
-    def save(self, notetype):
-        self.updated.append(notetype["name"])
-
 
 def _installer(gateway):
     assembler = TemplateAssembler(DEFAULT_SPEC, "/* render */")
@@ -143,7 +140,7 @@ def test_collapse_migrates_an_existing_uncollapsed_notetype():
     result = installer.ensure_installed(_rc())
 
     assert result is InstallResult.UPDATED
-    assert gw.updated == [DEFAULT_SPEC.name]  # persisted via save()
+    assert gw.updated == [DEFAULT_SPEC.name]  # persisted via update_templates
     flds = {f["name"]: f for f in notetype["flds"]}
     assert flds["Structures"]["collapsed"] is True
 

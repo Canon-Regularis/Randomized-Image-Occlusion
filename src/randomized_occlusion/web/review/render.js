@@ -385,13 +385,20 @@
       var target = targets[i];
       var best = null;
       var bestScore = -Infinity;
-      // "score" is a candidate's smallest distance to any already-placed centre
-      // or any *other* target — maximising it spreads the boxes out.
+      // Candidates whose (clamped) arrow is too short to read are rejected
+      // outright, so the arrow-visibility invariant is enforced by the loop
+      // itself — exactly as in placeCenter — and never traded for separation.
+      // Among arrow-valid candidates, "score" is the smallest distance to any
+      // already-placed centre or any *other* target; maximising it spreads the
+      // boxes out.
       for (var attempt = 0; attempt < cfg.maxPlacementAttempts; attempt++) {
         var angle = rng() * Math.PI * 2;
         var length = minLen + rng() * (maxLen - minLen);
         var cx = clamp(target.x + Math.cos(angle) * length, marginX, maxX);
         var cy = clamp(target.y + Math.sin(angle) * length, marginY, maxY);
+        if (Math.hypot(cx - target.x, cy - target.y) < minLen * ACCEPT_ARROW_FRACTION) {
+          continue; // clamping pulled the box onto its own target
+        }
         var score = Infinity;
         for (var placedIdx = 0; placedIdx < centers.length; placedIdx++) {
           score = Math.min(
@@ -416,20 +423,9 @@
           best = { x: cx, y: cy };
         }
       }
-      var chosen = best || farthestInMargin(target, marginX, marginY, maxX, maxY);
-      // Guarantee a visible arrow even if the best-separated spot ended up on
-      // top of its own target (degenerate small-stage case): prefer the farthest
-      // in-margin corner when it yields a longer arrow.
-      if (Math.hypot(chosen.x - target.x, chosen.y - target.y) < minLen * ACCEPT_ARROW_FRACTION) {
-        var corner = farthestInMargin(target, marginX, marginY, maxX, maxY);
-        if (
-          Math.hypot(corner.x - target.x, corner.y - target.y) >
-          Math.hypot(chosen.x - target.x, chosen.y - target.y)
-        ) {
-          chosen = corner;
-        }
-      }
-      centers.push(chosen);
+      // No sampled candidate had a visible arrow (tiny stage / huge min arrow):
+      // a readable arrow beats separation, so take the farthest in-margin point.
+      centers.push(best || farthestInMargin(target, marginX, marginY, maxX, maxY));
     }
     return centers;
   }
