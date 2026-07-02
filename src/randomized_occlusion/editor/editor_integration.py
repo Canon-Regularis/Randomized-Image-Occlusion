@@ -92,6 +92,15 @@ class EditorIntegration:
             func=lambda ed: self._open(ed),
             tip="Mark up the occlusion image (Randomized Image Occlusion)",
             label=_BUTTON_LABEL,
+            # Anki force-disables every add-on right-side button matching
+            # `button.linkb:not(.perm)` whenever no editor field is focused
+            # (setAddonButtonsDisabled, fired on field focusout). Switching note
+            # type via the chooser blurs the field and leaves focus on a Qt
+            # widget — not a field — so the button would stay stuck-disabled and
+            # unclickable until the Add window is reopened. This action opens a
+            # dialog and never touches the focused field, so mark it permanent
+            # (adds the `perm` class) to opt out of that focus-gating entirely.
+            disables=False,
         )
         buttons.append(button)
 

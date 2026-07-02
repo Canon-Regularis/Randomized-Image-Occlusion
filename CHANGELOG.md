@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   farthest valid point so the arrow always stays visible.
 - A non-finite value in `config.json` (e.g. `Infinity`) no longer crashes config
   loading — it falls back to the default.
+- The **Occlusion** button in the Add window no longer becomes unclickable after
+  switching note type away from and back to Randomized Image Occlusion. Anki
+  disables add-on buttons while no field is focused; the button is now marked
+  permanent so it stays usable regardless of focus.
 
 ## [1.0.0]
 
