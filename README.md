@@ -104,7 +104,7 @@ Anki **23.10 or newer** (desktop).
 
 ## How to install it
 
-**The easy way - from AnkiWeb** (listed as **magnolia**):
+**The easy way - from AnkiWeb** (listed as **Randomized Image Occlusion**):
 
 1. In Anki, go to **Tools → Add-ons → Get Add-ons…**.
 2. Paste in the code **`1836497069`** and click **OK**.
