@@ -38,7 +38,6 @@ def _roundtrip(
     content = NoteFactory(DEFAULT_SPEC).build(
         image_filename=image,
         structures=structures or _structures(),
-        deck_name="d",
         options=options,
         header=header,
         back_extra=back_extra,
@@ -160,7 +159,7 @@ def test_malformed_payload_raises():
 
 def test_absent_image_is_empty_string_not_an_error():
     content = NoteFactory(DEFAULT_SPEC).build(
-        image_filename="x.png", structures=_structures(), deck_name="d"
+        image_filename="x.png", structures=_structures()
     )
     fields = dict(content.fields)
     fields["Image"] = ""  # simulate a note whose image was cleared

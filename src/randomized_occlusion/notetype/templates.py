@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from textwrap import dedent
 
 from ..config.render_config import RenderConfig
 from ..domain.codec import encode_json_b64
@@ -170,6 +169,33 @@ __RO_VARIABLES__
 }
 """
 
+# The card's front/back HTML. Written with LITERAL Anki directives ({{#Header}},
+# {{cloze:Ordinals}}, ...) and __RO_*__ sentinels for the note type's field names,
+# then assembled by simple .replace() — the same idiom _CARD_CSS uses for its
+# colour variables, and far more legible than brace-doubling the directives
+# through str.format. (Literal {{ here is fine: this file *produces* the card
+# template; unlike render.js it is never inlined into a card and scanned by Anki.)
+_FRONT_TEMPLATE = """\
+<div id="ro-root" class="ro-root">
+  {{#__RO_HEADER__}}<div class="ro-header">{{__RO_HEADER__}}</div>{{/__RO_HEADER__}}
+  <div id="ro-stage" class="ro-stage">
+    {{__RO_IMAGE__}}
+    <svg id="ro-overlay" class="ro-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  {{#__RO_TYPEFLAG__}}<div class="ro-type">{{type:cloze:__RO_CLOZE__}}</div>{{/__RO_TYPEFLAG__}}
+  <div id="ro-ordinal" class="ro-hidden">{{cloze:__RO_CLOZE__}}</div>
+  <script id="ro-data" type="application/json">{{__RO_STRUCTURES__}}</script>
+  <script id="ro-config" type="application/json">__RO_CONFIG__</script>
+  <script>__RO_RENDER_JS__</script>
+</div>
+"""
+
+_BACK_TEMPLATE = """\
+{{FrontSide}}
+<div id="ro-answer" class="ro-answer" aria-hidden="true">{{cloze:__RO_CLOZE__}}</div>
+{{#__RO_BACKEXTRA__}}<div class="ro-extra">{{__RO_BACKEXTRA__}}</div>{{/__RO_BACKEXTRA__}}
+"""
+
 
 class TemplateAssembler:
     def __init__(self, spec: NoteTypeSpec, render_js: str) -> None:
@@ -180,42 +206,19 @@ class TemplateAssembler:
 
     def front(self, render_config: RenderConfig) -> str:
         s = self._spec
-        # A type-in box that grades the typed answer against the active cloze
-        # (the label), gated by the per-note TypeAnswer field so only "type"
-        # notes become Anki type-answer cards. Plain string (not f-string) so
-        # the "{{" stay literal; inserted as a .format value so they aren't
-        # re-parsed.
-        type_block = (
-            "{{#"
-            + s.type_flag_field
-            + '}}<div class="ro-type">{{type:cloze:'
-            + s.cloze_field
-            + "}}</div>{{/"
-            + s.type_flag_field
-            + "}}\n  "
-        )
-        return dedent(
-            """\
-            <div id="ro-root" class="ro-root">
-              {{{{#{header}}}}}<div class="ro-header">{{{{{header}}}}}</div>{{{{/{header}}}}}
-              <div id="ro-stage" class="ro-stage">
-                {{{{{image}}}}}
-                <svg id="ro-overlay" class="ro-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
-              </div>
-              {type_block}<div id="ro-ordinal" class="ro-hidden">{{{{cloze:{cloze}}}}}</div>
-              <script id="ro-data" type="application/json">{{{{{structures}}}}}</script>
-              <script id="ro-config" type="application/json">{config}</script>
-              <script>{render_js}</script>
-            </div>
-            """
-        ).format(
-            header=s.header_field,
-            image=s.image_field,
-            cloze=s.cloze_field,
-            structures=s.structures_field,
-            type_block=type_block,
-            config=encode_json_b64(render_config.behaviour()),
-            render_js=self._render_js,
+        # Substitute the field-name sentinels first, then the dynamic blobs
+        # (config, render JS) LAST so a substituted value can never collide with a
+        # later sentinel. The type-in box ({{#TypeAnswer}}...{{type:cloze:...}}) is
+        # always emitted but gated by the per-note TypeAnswer field, so only
+        # "type" notes become Anki type-answer cards.
+        return (
+            _FRONT_TEMPLATE.replace("__RO_HEADER__", s.header_field)
+            .replace("__RO_IMAGE__", s.image_field)
+            .replace("__RO_TYPEFLAG__", s.type_flag_field)
+            .replace("__RO_CLOZE__", s.cloze_field)
+            .replace("__RO_STRUCTURES__", s.structures_field)
+            .replace("__RO_CONFIG__", encode_json_b64(render_config.behaviour()))
+            .replace("__RO_RENDER_JS__", self._render_js)
         )
 
     def back(self) -> str:
@@ -226,13 +229,9 @@ class TemplateAssembler:
         # one here. It doubles as the back-side sentinel (#ro-answer) the JS
         # looks for. The renderer reads the active ordinal from the FrontSide
         # copy inside #ro-ordinal, so this extra hidden cloze is inert.
-        return dedent(
-            """\
-            {{{{FrontSide}}}}
-            <div id="ro-answer" class="ro-answer" aria-hidden="true">{{{{cloze:{cloze}}}}}</div>
-            {{{{#{extra}}}}}<div class="ro-extra">{{{{{extra}}}}}</div>{{{{/{extra}}}}}
-            """
-        ).format(cloze=s.cloze_field, extra=s.back_extra_field)
+        return _BACK_TEMPLATE.replace("__RO_CLOZE__", s.cloze_field).replace(
+            "__RO_BACKEXTRA__", s.back_extra_field
+        )
 
     def css(self, render_config: RenderConfig) -> str:
         return self.assemble(render_config).css

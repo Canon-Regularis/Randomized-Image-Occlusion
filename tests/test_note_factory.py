@@ -28,7 +28,6 @@ def _structures():
 def _build(**kwargs):
     kwargs.setdefault("image_filename", "x.png")
     kwargs.setdefault("structures", _structures())
-    kwargs.setdefault("deck_name", "d")
     return NoteFactory(DEFAULT_SPEC).build(**kwargs)
 
 
@@ -37,9 +36,8 @@ def _payload(content):
 
 
 def test_build_populates_all_fields():
-    content = _build(deck_name="Anatomy", header="Heart", back_extra="see Gray's")
+    content = _build(header="Heart", back_extra="see Gray's")
     assert content.notetype_name == DEFAULT_SPEC.name
-    assert content.deck_name == "Anatomy"
     assert set(content.fields) == set(DEFAULT_SPEC.fields)
     assert content.fields["Header"] == "Heart"
     assert content.fields["Back Extra"] == "see Gray's"

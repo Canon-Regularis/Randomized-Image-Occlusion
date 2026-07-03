@@ -75,7 +75,6 @@ def update_randomized_occlusion_note(
         content = NoteFactory(spec).build(
             image_filename=filename,
             structures=request.structures,
-            deck_name="",  # unused when editing: cards keep their current decks
             options=request.options,
             header=request.header,
             back_extra=request.back_extra,

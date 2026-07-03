@@ -37,7 +37,6 @@ def _roundtrip_labels(labels: list[str], options: CardOptions | None = None):
     content = NoteFactory(DEFAULT_SPEC).build(
         image_filename="x.png",
         structures=structures,
-        deck_name="d",
         options=options or CardOptions(),
     )
     return NoteReader(DEFAULT_SPEC).read(content.fields).structures, structures
@@ -141,7 +140,6 @@ def test_five_hundred_structures_roundtrip() -> None:
     content = NoteFactory(DEFAULT_SPEC).build(
         image_filename="big.png",
         structures=structures,
-        deck_name="d",
         options=CardOptions(direction=Direction.BOTH),
     )
     # 500 markers, both directions -> 1000 generated cards.

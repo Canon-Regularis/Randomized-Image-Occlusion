@@ -153,8 +153,9 @@ class MarkerDialog(QDialog):
         self._extra_edit.setMaximumHeight(90)
         form.addRow("Back extra:", self._extra_edit)
 
-        # The deck only matters when this dialog adds the note itself; editing and
-        # the Add-window staging leave placement to their own flow.
+        # The deck picker only matters when this dialog adds the note itself
+        # (CreateNoteSaver — the Tools menu and the Add-window button); the Browser
+        # edit flow reuses the note's existing deck.
         if self._saver.wants_deck:
             self._deck_combo = QComboBox()
             self._deck_combo.setToolTip("Deck the new card(s) are added to")

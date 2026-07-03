@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of deleting and re-adding it.
 
 ### Changed
-- The marking dialog's persistence is now a small strategy (add / edit /
-  Add-window staging), so the same canvas UI drives every flow.
+- The marking dialog's persistence is now a small strategy (add / edit), so the
+  same canvas UI drives every flow.
 - The Save flow now freezes the image controls while it reads the markers, so a
   card can never be saved with markers that belong to a different image.
 

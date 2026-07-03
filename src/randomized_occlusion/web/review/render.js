@@ -677,6 +677,27 @@
 
   // ---- orchestration --------------------------------------------------------
 
+  /**
+   * Map the active cloze ordinal to a structure index and a card direction. In
+   * "both" mode each structure owns two consecutive ordinals (forward, then
+   * reverse); otherwise the ordinal is the structure's 1-based index. An
+   * out-of-range ordinal falls back to the first structure. Pure (no DOM/rng),
+   * so it is unit-tested via _internals.
+   */
+  function resolveActiveCard(activeOrdinal, direction, count) {
+    var activeIndex;
+    var cardDir;
+    if (direction === "both") {
+      activeIndex = Math.floor((activeOrdinal - 1) / 2);
+      cardDir = activeOrdinal % 2 === 1 ? "forward" : "reverse";
+    } else {
+      activeIndex = activeOrdinal - 1;
+      cardDir = direction === "reverse" ? "reverse" : "forward";
+    }
+    if (activeIndex < 0 || activeIndex >= count) activeIndex = 0;
+    return { activeIndex: activeIndex, cardDir: cardDir };
+  }
+
   function render(mint) {
     var stageEl = document.getElementById("ro-stage");
     var img = getImage();
@@ -732,19 +753,10 @@
     var rng = makeRng(seed);
     var stage = { w: width, h: height };
 
-    // Map the active cloze ordinal to a structure and a card direction. In
-    // "both" mode each structure owns two consecutive ordinals (forward, then
-    // reverse); otherwise the ordinal is the structure's 1-based index.
-    var activeIndex;
-    var cardDir;
-    if (data.direction === "both") {
-      activeIndex = Math.floor((activeOrdinal - 1) / 2);
-      cardDir = activeOrdinal % 2 === 1 ? "forward" : "reverse";
-    } else {
-      activeIndex = activeOrdinal - 1;
-      cardDir = data.direction === "reverse" ? "reverse" : "forward";
-    }
-    if (activeIndex < 0 || activeIndex >= structures.length) activeIndex = 0;
+    // Map the active cloze ordinal to a structure index and card direction.
+    var activeCard = resolveActiveCard(activeOrdinal, data.direction, structures.length);
+    var activeIndex = activeCard.activeIndex;
+    var cardDir = activeCard.cardDir;
 
     // Project every structure to pixel space.
     var targets = [];
@@ -862,6 +874,7 @@
     boxBorderToward: boxBorderToward,
     shuffleIndices: shuffleIndices,
     normalizeAnswer: normalizeAnswer,
+    resolveActiveCard: resolveActiveCard,
     computeSingleLayout: computeSingleLayout,
     decodeBase64Utf8: decodeBase64Utf8,
   };

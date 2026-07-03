@@ -53,7 +53,7 @@ def _cards(count: int) -> str:
 
 
 class NoteSaver(ABC):
-    """Turns a :class:`MarkupResult` into a persisted (or staged) note."""
+    """Turns a :class:`MarkupResult` into a persisted note."""
 
     #: Whether the dialog should offer a deck picker (only creation does).
     wants_deck: bool = False

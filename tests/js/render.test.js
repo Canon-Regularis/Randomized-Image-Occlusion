@@ -188,3 +188,31 @@ test("computeSingleLayout is deterministic and covers every structure", () => {
   assert.equal(first.targets[0].x, 0.2 * STAGE.w); // projected to pixels
   assert.equal(first.targets[0].y, 0.3 * STAGE.h);
 });
+
+// ---- active-card resolution (ordinal -> structure index + direction) --------
+
+// render.js runs in a vm sandbox, so objects it returns carry that realm's
+// prototype; spreading into a plain literal lets strict deepEqual compare them.
+const active = (ord, dir, count) => ({ ...I.resolveActiveCard(ord, dir, count) });
+
+test("resolveActiveCard maps forward-mode ordinals to 0-based indices", () => {
+  assert.deepEqual(active(1, "forward", 2), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(2, "forward", 2), { activeIndex: 1, cardDir: "forward" });
+});
+
+test("resolveActiveCard carries reverse direction through", () => {
+  assert.deepEqual(active(1, "reverse", 2), { activeIndex: 0, cardDir: "reverse" });
+});
+
+test("resolveActiveCard splits each both-mode structure into forward then reverse", () => {
+  // In "both" mode structure k owns ordinals 2k-1 (forward) and 2k (reverse).
+  assert.deepEqual(active(1, "both", 2), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(2, "both", 2), { activeIndex: 0, cardDir: "reverse" });
+  assert.deepEqual(active(3, "both", 2), { activeIndex: 1, cardDir: "forward" });
+  assert.deepEqual(active(4, "both", 2), { activeIndex: 1, cardDir: "reverse" });
+});
+
+test("resolveActiveCard clamps out-of-range ordinals to the first structure", () => {
+  assert.deepEqual(active(0, "forward", 2), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(5, "forward", 2), { activeIndex: 0, cardDir: "forward" });
+});

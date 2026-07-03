@@ -28,7 +28,6 @@ class NoteContent:
     """The fully-resolved field values for a single note, ready to be added."""
 
     notetype_name: str
-    deck_name: str
     fields: dict[str, str]
 
 
@@ -48,7 +47,6 @@ class NoteFactory:
         *,
         image_filename: str,
         structures: StructureSet,
-        deck_name: str,
         options: CardOptions = _DEFAULT_OPTIONS,
         header: str = "",
         back_extra: str = "",
@@ -70,6 +68,5 @@ class NoteFactory:
         }
         return NoteContent(
             notetype_name=spec.name,
-            deck_name=deck_name,
             fields=fields,
         )

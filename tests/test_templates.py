@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 
@@ -46,6 +47,24 @@ def test_front_embeds_config_as_decodable_base64():
 def test_front_embeds_render_js():
     front = _assembler("window.__SENTINEL__ = 1;").front(RC)
     assert "window.__SENTINEL__ = 1;" in front
+
+
+def test_assembled_output_is_byte_stable():
+    # Characterization guard: front/back/css are a stored byte contract, computed
+    # with a STUB render.js so the hashes are independent of render.js edits. If a
+    # refactor of *how* these strings are built changes even one byte, this fails.
+    # Update the hashes only when you deliberately mean to change the rendered card.
+    asm = TemplateAssembler(DEFAULT_SPEC, "/* RJS */")
+    digests = {
+        "front": hashlib.sha256(asm.front(RC).encode()).hexdigest(),
+        "back": hashlib.sha256(asm.back().encode()).hexdigest(),
+        "css": hashlib.sha256(asm.css(RC).encode()).hexdigest(),
+    }
+    assert digests == {
+        "front": "61f1f358b5f8a5f1b900a8bb925141076400f6427eedfb8cb3a6ef6539ab56de",
+        "back": "009560c81cbebce3683552e7c9db44d35d312ffd792e31849c0dbb851fc2d84d",
+        "css": "1b0bf548e5a8b2ab05e1838f569d9df0b3d58ddfc1f547c3e97cfe5f1a7d5ef3",
+    }
 
 
 def test_bundled_render_js_has_no_double_brace_tokens():

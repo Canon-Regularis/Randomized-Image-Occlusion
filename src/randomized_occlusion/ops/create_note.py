@@ -63,7 +63,6 @@ def add_randomized_occlusion_note(
         content = NoteFactory(spec).build(
             image_filename=filename,
             structures=request.structures,
-            deck_name=request.deck_name,
             options=request.options,
             header=request.header,
             back_extra=request.back_extra,
@@ -72,7 +71,7 @@ def add_randomized_occlusion_note(
         note = col.new_note(notetype)
         for name, value in content.fields.items():
             note[name] = value
-        deck_id = col.decks.id(content.deck_name, create=True)
+        deck_id = col.decks.id(request.deck_name, create=True)
 
         return commit_with_undo(col, _UNDO_NAME, lambda: col.add_note(note, deck_id))
 

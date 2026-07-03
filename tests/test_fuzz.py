@@ -92,7 +92,6 @@ def test_factory_reader_roundtrip(seed: int) -> None:
     content = NoteFactory(DEFAULT_SPEC).build(
         image_filename=image,
         structures=structures,
-        deck_name="d",
         options=options,
         header=header,
         back_extra=back,
