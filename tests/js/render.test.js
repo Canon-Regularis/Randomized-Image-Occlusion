@@ -189,6 +189,23 @@ test("computeSingleLayout is deterministic and covers every structure", () => {
   assert.equal(first.targets[0].y, 0.3 * STAGE.h);
 });
 
+test("computeSingleLayout.order matches makeCycler's own shuffleIndices order", () => {
+  // makeCycler grades against shuffleIndices(n, makeRng(seed)) while paint draws
+  // the "current" box from computeSingleLayout(...).order. The two are derived
+  // independently and MUST stay identical, or the graded structure would not be
+  // the box shown as current. Lock that cross-derivation here.
+  const structures = [
+    { x: 0.2, y: 0.3, label: "A" },
+    { x: 0.6, y: 0.7, label: "B" },
+    { x: 0.8, y: 0.2, label: "C" },
+    { x: 0.4, y: 0.5, label: "D" },
+  ];
+  const seed = 4242;
+  const layoutOrder = [...I.computeSingleLayout(seed, STAGE, structures, CFG).order];
+  const cyclerOrder = [...I.shuffleIndices(structures.length, I.makeRng(seed))];
+  assert.deepEqual(layoutOrder, cyclerOrder);
+});
+
 // ---- active-card resolution (ordinal -> structure index + direction) --------
 
 // render.js runs in a vm sandbox, so objects it returns carry that realm's

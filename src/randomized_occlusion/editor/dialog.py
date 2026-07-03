@@ -62,7 +62,7 @@ _DIRECTION_CHOICES: tuple[tuple[Direction, str], ...] = (
 )
 _CARD_MODE_CHOICES: tuple[tuple[CardMode, str], ...] = (
     (CardMode.MULTI, "Multi — one card per label"),
-    (CardMode.SINGLE, "Single — cycle all on one card (type each)"),
+    (CardMode.SINGLE, "Single — cycle all on one card"),
 )
 
 
@@ -182,7 +182,7 @@ class MarkerDialog(QDialog):
         self._mode_combo.setCurrentIndex(max(0, self._mode_combo.findData(defaults.mode)))
         self._mode_combo.setToolTip(
             "Multi: one card per label. Single: one card that cycles through every "
-            "label (you type each answer), re-randomised every review."
+            "label in a fresh random order each review, with a running counter."
         )
         form.addRow("Mode:", self._mode_combo)
 
@@ -194,7 +194,7 @@ class MarkerDialog(QDialog):
         )
         self._direction_combo.setToolTip(
             "Forward: name the arrowed structure. Reverse: given the name, locate it. "
-            "Both: one of each. (Multi mode only.)"
+            "Both: a random mix, re-rolled each review (per marker in single-card mode)."
         )
         form.addRow("Direction:", self._direction_combo)
 

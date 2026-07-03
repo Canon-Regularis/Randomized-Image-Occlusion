@@ -37,8 +37,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "direction": "forward",
     # Card model:
     #   "multi"  = one card per structure (default),
-    #   "single" = one card that cycles through all structures (type each answer),
-    #              re-randomised every review.
+    #   "single" = one card that cycles through all structures, re-randomised every
+    #              review (forward markers are typed, reverse markers located).
     "card_mode": "multi",
     # --- appearance (consumed by the note-type CSS) ---
     "accent_color": "#e53935",

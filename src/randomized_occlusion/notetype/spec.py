@@ -44,8 +44,9 @@ class NoteTypeSpec:
 #:   * ``Image``       — the picture, stored as a full ``<img src=...>`` tag so
 #:                       Anki's media check keeps the file.
 #:   * ``Structures``  — base64-encoded JSON of every structure on the image.
-#:   * ``Ordinals``    — hidden cloze field (``{{c1::1}}...{{cN::N}}``) that
-#:                       drives one-card-per-structure generation.
+#:   * ``Ordinals``    — hidden cloze field (``{{c1::<label>}}...{{cN::<label>}}``
+#:                       in multi mode, ``{{c1::.}}`` in single) that drives
+#:                       one-card-per-structure generation.
 #:   * ``Header``      — optional title shown above the image.
 #:   * ``Back Extra``  — optional notes revealed on the answer side.
 #:   * ``TypeAnswer``  — per-note flag ("1" or empty); when set the card shows a
