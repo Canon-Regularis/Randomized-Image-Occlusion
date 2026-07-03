@@ -560,9 +560,10 @@
       if (progress) {
         progress.textContent = done ? n + " / " + n + " ✓" : state.idx + 1 + " / " + n;
       }
-      // The type box only makes sense for a forward prompt awaiting its answer; a
-      // backward prompt asks you to locate the named structure (nothing to type).
-      var typing = !done && currentForward() && !state.revealed;
+      // Keep the input visible (and focused) through a forward marker's reveal so
+      // it keeps shielding Space/Enter from Anki's card-flip shortcut; only
+      // backward markers (nothing to type) and the done state hide it.
+      var typing = !done && currentForward();
       if (input) input.style.display = typing ? "" : "none";
       if (button) {
         button.textContent = done
@@ -606,13 +607,19 @@
       updateBar();
     }
 
-    function focusInput() {
-      if (input && state.idx < n && !state.revealed && currentForward()) {
-        try {
-          input.focus();
-        } catch (e) {
-          /* focus is best-effort */
+    // Focus the current marker's interaction element so Space/Enter are shielded
+    // from Anki: the text input for a forward prompt, the Reveal/Next button for a
+    // backward one (which has nothing to type).
+    function focusCurrent() {
+      if (state.idx >= n) return;
+      try {
+        if (currentForward()) {
+          if (!state.revealed && input) input.focus();
+        } else if (button) {
+          button.focus();
         }
+      } catch (e) {
+        /* focus is best-effort */
       }
     }
 
@@ -652,7 +659,7 @@
         feedback.className = "ro-feedback";
       }
       paint();
-      focusInput();
+      focusCurrent();
     }
 
     function onButton() {
@@ -671,6 +678,13 @@
         },
         { passive: false }
       );
+      button.addEventListener("keydown", function (e) {
+        // A backward marker focuses this button; shield Space/Enter from Anki's
+        // card-flip shortcut (the button's native activation still advances).
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          e.stopPropagation();
+        }
+      });
     }
     if (input) {
       input.addEventListener("keydown", function (e) {
@@ -685,7 +699,7 @@
       });
     }
 
-    return { paint: paint, focusInput: focusInput, seed: seed };
+    return { paint: paint, focus: focusCurrent, seed: seed };
   }
 
   /** Single-card mode: interactive cycler on the front, answer key on the back. */
@@ -723,7 +737,7 @@
     // Auto-focus only on genuine (re)creation — never on a resize repaint, which
     // would steal focus and re-pop the mobile keyboard mid-review. next() handles
     // focusing when the learner deliberately advances.
-    if (created) bar.__roController.focusInput();
+    if (created) bar.__roController.focus();
   }
 
   // ---- orchestration --------------------------------------------------------
