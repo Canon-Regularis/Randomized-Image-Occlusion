@@ -8,13 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0]
 
 ### Added
-- **Make occlusion cards from Anki's Add window.** With the Randomized Image
-  Occlusion note type selected in **Add**, click the **Occlusion** toolbar button
-  to mark the image up on the canvas instead of editing the raw fields by hand.
-  Save stages the fields and Anki's **Add** button creates the card. The internal
-  fields (Image, Structures, Ordinals, TypeAnswer) are collapsed by default to
-  keep the Add window clean. (The canvas is never launched automatically — the
-  Add window opens normally so you can pick your note type first.)
+- **Make occlusion cards from Anki's Add window.** Click the **Occlusion** toolbar
+  button in Anki's **Add** window to open the marking canvas — pick a deck, mark up
+  the image, and **Save** adds the card directly, exactly like the Tools-menu
+  creator (same deck picker and one-step save). The button opens the creator on
+  demand; the Add window is never taken over automatically.
 - **Edit existing cards.** Right-click a Randomized Occlusion note in the Browser
   and choose **Edit with Randomized Image Occlusion** to reopen it in the marking
   dialog with its image, markers, and options restored. Save updates the note

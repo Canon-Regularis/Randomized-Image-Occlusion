@@ -4,8 +4,8 @@ Hosts the marking canvas in an :class:`AnkiWebView`, collects native inputs
 (header, extra, deck, card options), and hands a validated :class:`MarkupResult`
 to a :class:`NoteSaver`. The dialog knows nothing about *how* the note is stored:
 
-* creating a new note, editing an existing one, and staging fields into Anki's
-  own Add window are all just different savers;
+* creating a new note (Tools menu / Add-window button) and editing an existing
+  one (Browser) are just different savers;
 * an optional ``prefill`` (a :class:`LoadedNote`) restores an existing note's
   image, markers, and options onto the canvas.
 

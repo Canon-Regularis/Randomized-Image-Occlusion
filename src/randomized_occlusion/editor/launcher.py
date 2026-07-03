@@ -22,6 +22,8 @@ class EditorLauncher:
     def open(self, *_args: Any) -> None:
         # *_args absorbs the bool QAction.triggered emits, so this works whether
         # or not PyQt truncates the signal's argument.
+        if self._host.is_showing():
+            return  # one editor dialog at a time (the Add-window button shares it)
         if self._mw.col is None:
             showInfo("Please open a collection first.")
             return

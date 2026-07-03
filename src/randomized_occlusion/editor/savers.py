@@ -4,11 +4,9 @@ The marking dialog gathers the same thing every time — a :class:`MarkupResult`
 (structures, options, header/back text, and which image to use). *What happens
 to it on Save* varies, so that is a Strategy:
 
-* :class:`CreateNoteSaver` — add a brand-new note (Tools → menu flow).
+* :class:`CreateNoteSaver` — add a brand-new note (the Tools menu and the
+  Add-window **Occlusion** button both open this flow).
 * :class:`UpdateNoteSaver` — rewrite an existing note (Browser edit flow).
-* :class:`EditorFieldSaver` — write the fields into a note being composed in
-  Anki's own Add window, letting Anki add it (so occlusion cards are made with
-  the canvas instead of the raw fields).
 
 Keeping this out of the dialog means the dialog has no idea how notes are stored,
 and each flow is a small, single-responsibility object.
@@ -20,10 +18,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from aqt.utils import showWarning
-
-from ..collection.gateways import AnkiMediaGateway
-from ..collection.note_factory import NoteFactory
 from ..config.config_service import ConfigService
 from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
@@ -33,7 +27,6 @@ from ..ops.update_note import UpdateRequest, update_randomized_occlusion_note
 
 __all__ = [
     "CreateNoteSaver",
-    "EditorFieldSaver",
     "MarkupResult",
     "NoteSaver",
     "UpdateNoteSaver",
@@ -140,60 +133,3 @@ class UpdateNoteSaver(NoteSaver):
             spec=self._spec,
             on_success=lambda _changes: dialog.finish_saved("Card updated."),
         )
-
-
-class EditorFieldSaver(NoteSaver):
-    """Stages the markup into a note being composed in Anki's own editor.
-
-    Instead of adding the note itself, it imports the image, builds the field
-    values with the shared :class:`NoteFactory`, writes them onto the editor's
-    in-progress note, and reloads the editor — so Anki's normal **Add** button
-    creates the card. This is what lets the Add window show the marking canvas
-    rather than the raw occlusion fields.
-    """
-
-    def __init__(
-        self,
-        config: ConfigService,
-        main_window: Any,
-        editor: Any,
-        spec: NoteTypeSpec = DEFAULT_SPEC,
-    ) -> None:
-        self._config = config
-        self._mw = main_window
-        self._editor = editor
-        self._spec = spec
-
-    def load_button_label(self) -> str:
-        return "Replace image…"
-
-    def save(self, dialog: Any, result: MarkupResult) -> None:
-        col = self._mw.col
-        note = getattr(self._editor, "note", None)
-        if col is None or note is None:
-            # The Add window/collection went away between opening the canvas and
-            # saving; tell the user rather than fail silently.
-            showWarning(
-                "Couldn't prepare the card — the Add window is no longer available."
-            )
-            return
-        filename = (
-            AnkiMediaGateway(col).add_image(result.new_image_path)
-            if result.new_image_path
-            else (result.existing_image_filename or "")
-        )
-        content = NoteFactory(self._spec).build(
-            image_filename=filename,
-            structures=result.structures,
-            deck_name="",  # the Add window owns the deck
-            options=result.options,
-            header=result.header,
-            back_extra=result.back_extra,
-        )
-        for name, value in content.fields.items():
-            note[name] = value
-        # Reflect the new field values into the editor UI; Anki persists the note
-        # when the user presses Add.
-        self._editor.loadNote()
-        count = len(result.structures)
-        dialog.finish_saved(f"{_cards(count)} ready — press Add to create.")

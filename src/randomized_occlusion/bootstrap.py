@@ -47,8 +47,9 @@ def setup(addon_module: str) -> None:
     _browser_integration = BrowserEditIntegration(mw, config_service)
     _browser_integration.register()
 
-    # Make Anki's Add window use the marking canvas for our note type.
-    _editor_integration = EditorIntegration(mw, config_service)
+    # Add an Occlusion button to Anki's Add window that opens the same creator as
+    # the Tools menu (shares the launcher, so only one dialog opens at a time).
+    _editor_integration = EditorIntegration(_launcher)
     _editor_integration.register()
 
     # Install the note type on every profile open, and also right now if a
