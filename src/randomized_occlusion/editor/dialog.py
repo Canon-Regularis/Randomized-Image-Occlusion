@@ -210,10 +210,10 @@ class MarkerDialog(QDialog):
         self._context_check.setToolTip("Reveal the other structures' labels around the tested one")
         form.addRow("", self._context_check)
 
-        # Single mode always types its "name it" (forward) markers, so refresh the
-        # "Type the answer" box whenever the mode or direction changes: lock it ON
-        # for single forward/both, and hide it for single + reverse (all "locate
-        # it", nothing to type). Multi mode leaves it free.
+        # Single mode's typing is fixed by direction, so refresh the "Type the
+        # answer" box whenever the mode or direction changes: it stays visible but
+        # disabled — locked ON for single forward/both, locked OFF for single +
+        # reverse (all "locate it", nothing to type). Multi mode leaves it free.
         qconnect(self._mode_combo.currentIndexChanged, self._sync_type_option)
         qconnect(self._direction_combo.currentIndexChanged, self._sync_type_option)
         self._sync_type_option()
@@ -226,7 +226,6 @@ class MarkerDialog(QDialog):
         OFF). Multi mode leaves the box free to toggle."""
         single = self._mode_combo.currentData() is CardMode.SINGLE
         reverse = self._direction_combo.currentData() is Direction.REVERSE
-        self._type_check.setVisible(True)
         if single:
             self._type_check.setChecked(not reverse)  # forward/both on, reverse off
             self._type_check.setEnabled(False)

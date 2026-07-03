@@ -49,10 +49,10 @@ class Direction(_StrChoice):
 
 
 class Interaction(_StrChoice):
-    """How the learner answers a (multi-mode) card."""
+    """How the learner answers a card."""
 
     REVEAL = "reveal"  # flip to see the label
-    TYPE = "type"  # type the name; Anki grades it
+    TYPE = "type"  # type the name; graded by Anki in multi, the cycler in single
 
 
 class CardMode(_StrChoice):

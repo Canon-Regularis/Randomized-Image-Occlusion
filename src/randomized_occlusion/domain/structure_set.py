@@ -116,10 +116,11 @@ class StructureSet:
     def to_payload_base64(self, options: CardOptions) -> str:
         """Base64 of the per-note payload the renderer reads.
 
-        Carries the per-note render settings (mode, direction, context-labels)
-        with every structure, so a note renders correctly regardless of the
-        current global config (self-describing). Enum values are serialised via
-        ``.value`` so the payload stays byte-identical to the legacy strings.
+        Carries the per-note render settings (mode, direction, interaction,
+        context-labels) with every structure, so a note renders correctly
+        regardless of the current global config (self-describing). Enum values
+        are serialised via ``.value`` so the payload stays byte-identical to the
+        legacy strings.
         """
         payload = {
             "v": 2,
