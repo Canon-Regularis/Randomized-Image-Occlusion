@@ -19,7 +19,7 @@ from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
 from ..notetype.factory import build_installer
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
-from .runner import run_note_op
+from .runner import commit_with_undo, run_note_op
 
 __all__ = ["NoteRequest", "add_randomized_occlusion_note"]
 
@@ -74,8 +74,6 @@ def add_randomized_occlusion_note(
             note[name] = value
         deck_id = col.decks.id(content.deck_name, create=True)
 
-        undo_position = col.add_custom_undo_entry(_UNDO_NAME)
-        col.add_note(note, deck_id)
-        return col.merge_undo_entries(undo_position)
+        return commit_with_undo(col, _UNDO_NAME, lambda: col.add_note(note, deck_id))
 
     run_note_op(parent=parent, op=op, on_success=on_success)

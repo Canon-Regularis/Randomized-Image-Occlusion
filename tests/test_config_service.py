@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import randomized_occlusion
 from randomized_occlusion.config.config_service import (
     ConfigService,
     InMemoryConfigProvider,
 )
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
+
+
+def test_default_config_matches_shipped_config_json():
+    # DEFAULT_CONFIG (used headlessly / in tests) mirrors config.json by hand, so
+    # a test must lock the two together or they silently drift out of sync.
+    path = Path(randomized_occlusion.__file__).parent / "config.json"
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk == DEFAULT_CONFIG
 
 
 def test_load_merges_over_defaults():

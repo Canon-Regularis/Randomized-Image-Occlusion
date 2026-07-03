@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from randomized_occlusion.collection.note_factory import NoteFactory
-from randomized_occlusion.collection.note_reader import NoteReader
+from randomized_occlusion.collection.note_reader import NoteReader, note_fields
 from randomized_occlusion.domain.card_options import (
     CardMode,
     CardOptions,
@@ -44,6 +44,27 @@ def _roundtrip(
         back_extra=back_extra,
     )
     return NoteReader(DEFAULT_SPEC).read(content.fields)
+
+
+# -- note_fields: the one place that reaches into Anki's note-dict API ---------
+
+
+class _FakeNote:
+    """Duck-types just enough of an Anki note for ``note_fields``."""
+
+    def __init__(self, fields: dict[str, str]) -> None:
+        self._fields = fields
+
+    def note_type(self) -> dict:
+        return {"flds": [{"name": name} for name in self._fields]}
+
+    def __getitem__(self, name: str) -> str:
+        return self._fields[name]
+
+
+def test_note_fields_reads_every_field_by_name():
+    fields = {"Image": "<img src=x.png>", "Header": "Heart", "Ordinals": ""}
+    assert note_fields(_FakeNote(fields)) == fields
 
 
 # -- the core guarantee: reader is the exact inverse of the factory ------------

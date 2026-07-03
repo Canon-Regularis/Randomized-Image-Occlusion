@@ -16,7 +16,7 @@ from aqt import gui_hooks
 from aqt.qt import qconnect
 from aqt.utils import showWarning
 
-from ..collection.note_reader import NoteReader
+from ..collection.note_reader import NoteReader, note_fields
 from ..config.config_service import ConfigService
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
 from .dialog import MarkerDialog
@@ -80,9 +80,7 @@ class BrowserEditIntegration:
             return
         try:
             note = col.get_note(note_id)
-            field_names = [field["name"] for field in note.note_type()["flds"]]
-            fields = {name: note[name] for name in field_names}
-            loaded = NoteReader(self._spec).read(fields)
+            loaded = NoteReader(self._spec).read(note_fields(note))
         except Exception as exc:
             showWarning(
                 "This note could not be opened for editing:\n\n"

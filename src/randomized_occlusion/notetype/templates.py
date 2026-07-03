@@ -24,7 +24,10 @@ __all__ = [
     "extract_fingerprint",
 ]
 
-#: Bump when the template *skeleton* (not the JS/CSS) changes, to force updates.
+#: A manual lever to force already-installed note types to refresh. Any real
+#: change to the front/back/CSS is picked up automatically (``_fingerprint``
+#: hashes the assembled strings), so bumping this is only needed to force a
+#: reinstall when the strings did not otherwise change.
 TEMPLATE_VERSION = 1
 
 _FINGERPRINT_RE = re.compile(r"ro-fingerprint:([0-9a-f]+)")

@@ -13,13 +13,27 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from typing import Any
 
 from ..domain.card_options import CardMode, CardOptions, Direction, Interaction
 from ..domain.codec import decode_json_b64
 from ..domain.structure_set import StructureSet
 from ..notetype.spec import NoteTypeSpec
 
-__all__ = ["LoadedNote", "NoteReader"]
+__all__ = ["LoadedNote", "NoteReader", "note_fields"]
+
+
+def note_fields(note: Any) -> dict[str, str]:
+    """A stored note's field values keyed by field name.
+
+    Reaches through Anki's note-dict API (``note.note_type()["flds"]`` then
+    ``note[name]``) so that this one reach lives beside its consumer,
+    :class:`NoteReader`, instead of being duplicated at every call site. Only
+    duck-types the note, so this module stays import-pure and unit-testable with
+    a stub note.
+    """
+    field_names = [field["name"] for field in note.note_type()["flds"]]
+    return {name: note[name] for name in field_names}
 
 
 @dataclass(frozen=True, slots=True)

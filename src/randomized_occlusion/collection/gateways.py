@@ -1,10 +1,11 @@
 """Thin adapters (gateways) over Anki's collection APIs.
 
-These exist to invert the dependency between our logic and Anki: the installer
-and ops depend on the small ``Protocol`` interfaces declared here, not on
-``col.models`` / ``col.media`` directly. That keeps the logic unit-testable with
-in-memory fakes (Liskov-substitutable for the real gateways) and confines all
-knowledge of Anki's mutable-dict note-type API to one place.
+These exist to invert the dependency between our logic and Anki: the note-type
+installer depends on the small ``ModelGateway`` ``Protocol`` declared here, not on
+``col.models`` directly. That keeps it unit-testable with an in-memory fake
+(Liskov-substitutable for the real gateway) and confines all knowledge of Anki's
+mutable-dict note-type API to one place. ``AnkiMediaGateway`` is a thin concrete
+adapter over ``col.media`` used directly by the ops.
 
 Only the ``Anki*`` implementations touch Anki; importing this module does not
 import ``anki``/``aqt``.
@@ -17,7 +18,6 @@ from typing import Any, Protocol, runtime_checkable
 __all__ = [
     "AnkiMediaGateway",
     "AnkiModelGateway",
-    "MediaGateway",
     "ModelGateway",
     "NotetypeDict",
 ]
@@ -61,15 +61,6 @@ class ModelGateway(Protocol):
     ) -> bool:
         """Collapse the named fields in the editor (in place); return whether it
         changed (the caller persists via :meth:`update_templates`)."""
-        ...
-
-
-@runtime_checkable
-class MediaGateway(Protocol):
-    """Copy images into the collection's media store."""
-
-    def add_image(self, path: str) -> str:
-        """Return the (possibly renamed) basename the image is stored under."""
         ...
 
 
@@ -149,10 +140,11 @@ class AnkiModelGateway:
 
 
 class AnkiMediaGateway:
-    """``MediaGateway`` backed by ``col.media``."""
+    """Thin adapter over ``col.media`` for copying images into the media store."""
 
     def __init__(self, collection: Any) -> None:
         self._media = collection.media
 
     def add_image(self, path: str) -> str:
+        """Import ``path`` and return the (possibly renamed) media basename."""
         return self._media.add_file(path)

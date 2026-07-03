@@ -66,13 +66,6 @@ _CARD_MODE_CHOICES: tuple[tuple[CardMode, str], ...] = (
 )
 
 
-def _choice_index(choices: tuple[tuple[Any, str], ...], member: Any) -> int:
-    for index, (value, _label) in enumerate(choices):
-        if value == member:
-            return index
-    return 0
-
-
 class MarkerDialog(QDialog):
     def __init__(
         self,
@@ -183,8 +176,9 @@ class MarkerDialog(QDialog):
         form = QFormLayout(group)
 
         self._mode_combo = QComboBox()
-        self._mode_combo.addItems([label for _, label in _CARD_MODE_CHOICES])
-        self._mode_combo.setCurrentIndex(_choice_index(_CARD_MODE_CHOICES, defaults.mode))
+        for mode, label in _CARD_MODE_CHOICES:
+            self._mode_combo.addItem(label, mode)
+        self._mode_combo.setCurrentIndex(max(0, self._mode_combo.findData(defaults.mode)))
         self._mode_combo.setToolTip(
             "Multi: one card per label. Single: one card that cycles through every "
             "label (you type each answer), re-randomised every review."
@@ -192,9 +186,10 @@ class MarkerDialog(QDialog):
         form.addRow("Mode:", self._mode_combo)
 
         self._direction_combo = QComboBox()
-        self._direction_combo.addItems([label for _, label in _DIRECTION_CHOICES])
+        for direction, label in _DIRECTION_CHOICES:
+            self._direction_combo.addItem(label, direction)
         self._direction_combo.setCurrentIndex(
-            _choice_index(_DIRECTION_CHOICES, defaults.direction)
+            max(0, self._direction_combo.findData(defaults.direction))
         )
         self._direction_combo.setToolTip(
             "Forward: name the arrowed structure. Reverse: given the name, locate it. "
@@ -414,12 +409,12 @@ class MarkerDialog(QDialog):
     def _read_options(self) -> CardOptions:
         """Read the card-option widgets into the immutable domain value object."""
         return CardOptions(
-            direction=_DIRECTION_CHOICES[self._direction_combo.currentIndex()][0],
+            direction=self._direction_combo.currentData(),
             interaction=(
                 Interaction.TYPE if self._type_check.isChecked() else Interaction.REVEAL
             ),
             context_labels=self._context_check.isChecked(),
-            mode=_CARD_MODE_CHOICES[self._mode_combo.currentIndex()][0],
+            mode=self._mode_combo.currentData(),
         )
 
     def finish_saved(self, message: str) -> None:

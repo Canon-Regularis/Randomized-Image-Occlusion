@@ -22,7 +22,7 @@ from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
 from ..notetype.factory import build_installer
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
-from .runner import run_note_op
+from .runner import commit_with_undo, run_note_op
 
 __all__ = ["UpdateRequest", "update_randomized_occlusion_note"]
 
@@ -84,10 +84,8 @@ def update_randomized_occlusion_note(
         for name, value in content.fields.items():
             note[name] = value
 
-        undo_position = col.add_custom_undo_entry(_UNDO_NAME)
-        # Persists the fields and regenerates cards for any cloze ordinals that
-        # were added or removed by the edit.
-        col.update_note(note)
-        return col.merge_undo_entries(undo_position)
+        # col.update_note persists the fields and regenerates cards for any cloze
+        # ordinals the edit added or removed.
+        return commit_with_undo(col, _UNDO_NAME, lambda: col.update_note(note))
 
     run_note_op(parent=parent, op=op, on_success=on_success)

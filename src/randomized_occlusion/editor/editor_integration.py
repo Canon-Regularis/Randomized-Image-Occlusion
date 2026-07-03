@@ -21,7 +21,7 @@ from typing import Any
 from aqt import gui_hooks
 from aqt.utils import showWarning
 
-from ..collection.note_reader import LoadedNote, NoteReader
+from ..collection.note_reader import LoadedNote, NoteReader, note_fields
 from ..config.config_service import ConfigService
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
 from .dialog import MarkerDialog
@@ -125,8 +125,7 @@ class EditorIntegration:
         marked one re-opens exactly as left.
         """
         try:
-            field_names = [field["name"] for field in note.note_type()["flds"]]
-            fields = {name: note[name] for name in field_names}
+            fields = note_fields(note)
         except Exception:
             return None
         if not str(fields.get(self._spec.structures_field, "")).strip():

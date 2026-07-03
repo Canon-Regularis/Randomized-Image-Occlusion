@@ -67,8 +67,7 @@ class ConfigService:
         merged = dict(DEFAULT_CONFIG)
         stored = self._provider.get()
         if stored:
-            for key, value in stored.items():
-                merged[key] = value
+            merged.update(stored)
         return merged
 
     def render_config(self) -> RenderConfig:
