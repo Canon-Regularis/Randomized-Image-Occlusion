@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from .card_options import CardMode, CardOptions, Direction
+from .card_options import CardMode, CardOptions
 from .codec import encode_json_b64
 from .structure import Structure, StructureDict
 
@@ -96,32 +96,21 @@ class StructureSet:
         """The contents of the hidden cloze field that generates the cards.
 
         Each ``{{cN::...}}`` makes Anki emit one card; the renderer reads the
-        active cloze's ``data-ordinal`` to learn which structure/direction this
-        card is. The label is the cloze answer so "type-to-answer" mode
+        active cloze's ``data-ordinal`` to learn which structure this card tests.
+        The label is the cloze answer so "type-to-answer" mode
         (``{{type:cloze:...}}``) can grade what the learner types, and labels are
         escaped so cloze syntax can't break the field.
 
-        In single mode exactly one card is generated (one cloze); the renderer
-        cycles through all structures on that single card, so the cloze answer
-        content is inert. Otherwise, for ``Direction.BOTH`` each structure gets
-        two consecutive ordinals (a forward and a reverse card); otherwise one.
+        Every mode emits exactly one card per structure. In single mode that one
+        card cycles through all structures (the cloze answer is inert). In multi
+        mode the card's direction — forward, reverse, or, for ``Direction.BOTH``,
+        a fresh random pick each review — is chosen by the renderer, not encoded
+        in the ordinal, so all three directions share these clozes.
         """
         if options.mode == CardMode.SINGLE:
             return "{{c1::.}}"
-        ordered = self.ordered
-        if options.direction == Direction.BOTH:
-            parts = []
-            for structure in ordered:
-                answer = _cloze_escape(structure.label)
-                # Each structure owns two consecutive ordinals derived from its
-                # own ordinal (forward then reverse), matching the single branch
-                # below which also indexes off ``structure.ordinal``.
-                forward = 2 * structure.ordinal - 1
-                parts.append(f"{{{{c{forward}::{answer}}}}}")
-                parts.append(f"{{{{c{forward + 1}::{answer}}}}}")
-            return "".join(parts)
         return "".join(
-            f"{{{{c{s.ordinal}::{_cloze_escape(s.label)}}}}}" for s in ordered
+            f"{{{{c{s.ordinal}::{_cloze_escape(s.label)}}}}}" for s in self.ordered
         )
 
     def to_payload_base64(self, options: CardOptions) -> str:

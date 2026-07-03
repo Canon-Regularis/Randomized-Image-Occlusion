@@ -64,12 +64,11 @@ def test_structures_field_is_a_self_describing_payload():
     assert StructureSet.from_json(json.dumps(payload["structures"])) == structures
 
 
-def test_both_direction_doubles_the_cloze_ordinals():
+def test_both_direction_generates_one_card_per_structure():
+    # "both" emits one card per structure; the renderer picks a random
+    # forward/backward direction per review (issue #5), so the clozes match forward.
     content = _build(options=CardOptions(direction=Direction.BOTH))
-    assert (
-        content.fields["Ordinals"]
-        == "{{c1::Aorta}}{{c2::Aorta}}{{c3::Vena cava}}{{c4::Vena cava}}"
-    )
+    assert content.fields["Ordinals"] == "{{c1::Aorta}}{{c2::Vena cava}}"
 
 
 def test_reverse_direction_is_stored_in_the_payload():

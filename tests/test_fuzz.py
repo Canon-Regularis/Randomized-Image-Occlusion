@@ -148,11 +148,11 @@ def test_cloze_field_count_and_ordinals(seed: int) -> None:
 
     forward = structures.cloze_field(CardOptions(direction=Direction.FORWARD))
     both = structures.cloze_field(CardOptions(direction=Direction.BOTH))
-    # Labels are escaped so "{{c" only ever marks a real cloze start.
+    # Labels are escaped so "{{c" only ever marks a real cloze start. Every
+    # direction emits one card per structure (direction is a render-time choice).
     assert forward.count("{{c") == n
-    assert both.count("{{c") == 2 * n
+    assert both == forward
     assert f"{{{{c{n}::" in forward
-    assert f"{{{{c{2 * n}::" in both
 
 
 @pytest.mark.parametrize("seed", range(40))

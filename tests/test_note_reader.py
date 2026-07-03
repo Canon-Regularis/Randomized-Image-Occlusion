@@ -105,11 +105,11 @@ def test_reverse_direction_round_trips():
     assert loaded.options.direction == Direction.REVERSE
 
 
-def test_both_direction_round_trips_without_doubling_the_structures():
+def test_both_direction_round_trips_without_altering_the_structures():
     loaded = _roundtrip(CardOptions(direction=Direction.BOTH))
     assert loaded.options.direction == Direction.BOTH
-    # The payload stores one entry per marker; the doubling lives only in the
-    # cloze field, so editing sees the original two structures.
+    # The payload stores one entry per marker, so editing sees the original
+    # structures unchanged regardless of direction.
     assert loaded.structures == _structures()
 
 

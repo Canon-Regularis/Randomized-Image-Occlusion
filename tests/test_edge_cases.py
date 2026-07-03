@@ -118,9 +118,10 @@ def test_structure_set_rejects_empty() -> None:
         StructureSet.from_unordered([])
 
 
-def test_single_structure_both_direction_makes_two_clozes() -> None:
+def test_single_structure_both_direction_makes_one_cloze() -> None:
+    # "both" emits one card per structure now; the renderer randomises direction.
     field = _one("Aorta").cloze_field(CardOptions(direction=Direction.BOTH))
-    assert field == "{{c1::Aorta}}{{c2::Aorta}}"
+    assert field == "{{c1::Aorta}}"
 
 
 # ---- stress ------------------------------------------------------------------
@@ -142,8 +143,9 @@ def test_five_hundred_structures_roundtrip() -> None:
         structures=structures,
         options=CardOptions(direction=Direction.BOTH),
     )
-    # 500 markers, both directions -> 1000 generated cards.
-    assert content.fields["Ordinals"].count("{{c") == 1000
+    # 500 markers -> 500 generated cards (one per structure; direction is chosen
+    # per review by the renderer, not by doubling the clozes).
+    assert content.fields["Ordinals"].count("{{c") == 500
     # The base64 payload never contains injection characters, however large.
     assert re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", content.fields["Structures"])
     loaded = NoteReader(DEFAULT_SPEC).read(content.fields)

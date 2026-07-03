@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   card can never be saved with markers that belong to a different image.
 
 ### Fixed
+- The **both** direction now works. Previously it did nothing in single-card mode
+  and split each structure into two fixed cards in multi mode; now every card
+  randomly tests the structure **forwards** (name the arrowed structure) or
+  **backwards** (locate it from its name), re-rolled each review. In single-card
+  mode each marker in the cycle gets its own random direction — forward markers
+  are typed, backward markers ask you to locate the named structure and reveal an
+  arrow to confirm.
 - The editor dialog is now released when closed, so repeatedly editing notes no
   longer leaves hidden dialogs in memory for the session.
 - Adding or editing a note can no longer corrupt Anki's undo queue when the

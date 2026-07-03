@@ -54,19 +54,15 @@ def test_cloze_field_escapes_metacharacters():
     assert s.cloze_field(CardOptions()) == "{{c1::a:b}c}}"
 
 
-def test_cloze_field_both_direction_doubles_ordinals():
+def test_cloze_field_is_the_same_for_every_direction():
+    # Every direction (forward / reverse / both) generates one card per
+    # structure; direction is applied by the RENDERER — a fresh random pick each
+    # review for "both" (issue #5) — not by the cloze grammar. Pin that.
     s = StructureSet.from_unordered([_s(1, "a"), _s(1, "b")])
-    both = s.cloze_field(CardOptions(direction=Direction.BOTH))
-    assert both == "{{c1::a}}{{c2::a}}{{c3::b}}{{c4::b}}"
-
-
-def test_cloze_field_reverse_matches_forward():
-    # Reverse cards use the same clozes as forward (direction is applied by the
-    # renderer, not the cloze grammar); pin that intentional equivalence.
-    s = StructureSet.from_unordered([_s(1, "a"), _s(1, "b")])
-    assert s.cloze_field(CardOptions(direction=Direction.REVERSE)) == s.cloze_field(
-        CardOptions(direction=Direction.FORWARD)
-    )
+    forward = s.cloze_field(CardOptions(direction=Direction.FORWARD))
+    assert forward == "{{c1::a}}{{c2::b}}"
+    assert s.cloze_field(CardOptions(direction=Direction.REVERSE)) == forward
+    assert s.cloze_field(CardOptions(direction=Direction.BOTH)) == forward
 
 
 def test_single_mode_emits_exactly_one_cloze():

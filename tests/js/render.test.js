@@ -193,26 +193,60 @@ test("computeSingleLayout is deterministic and covers every structure", () => {
 
 // render.js runs in a vm sandbox, so objects it returns carry that realm's
 // prototype; spreading into a plain literal lets strict deepEqual compare them.
-const active = (ord, dir, count) => ({ ...I.resolveActiveCard(ord, dir, count) });
+const active = (ord, dir, count, pf) => ({ ...I.resolveActiveCard(ord, dir, count, pf) });
 
-test("resolveActiveCard maps forward-mode ordinals to 0-based indices", () => {
-  assert.deepEqual(active(1, "forward", 2), { activeIndex: 0, cardDir: "forward" });
-  assert.deepEqual(active(2, "forward", 2), { activeIndex: 1, cardDir: "forward" });
+test("resolveActiveCard maps every ordinal straight to its 0-based structure index", () => {
+  assert.deepEqual(active(1, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(2, "forward", 2, true), { activeIndex: 1, cardDir: "forward" });
+  assert.deepEqual(active(1, "reverse", 2, true), { activeIndex: 0, cardDir: "reverse" });
 });
 
-test("resolveActiveCard carries reverse direction through", () => {
-  assert.deepEqual(active(1, "reverse", 2), { activeIndex: 0, cardDir: "reverse" });
+test("resolveActiveCard uses the coin only to pick both-mode direction", () => {
+  // Ordinal maps straight to the structure; preferForward decides the direction.
+  assert.deepEqual(active(1, "both", 2, true), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(1, "both", 2, false), { activeIndex: 0, cardDir: "reverse" });
+  assert.deepEqual(active(2, "both", 2, true), { activeIndex: 1, cardDir: "forward" });
+  assert.deepEqual(active(2, "both", 2, false), { activeIndex: 1, cardDir: "reverse" });
 });
 
-test("resolveActiveCard splits each both-mode structure into forward then reverse", () => {
-  // In "both" mode structure k owns ordinals 2k-1 (forward) and 2k (reverse).
-  assert.deepEqual(active(1, "both", 2), { activeIndex: 0, cardDir: "forward" });
-  assert.deepEqual(active(2, "both", 2), { activeIndex: 0, cardDir: "reverse" });
-  assert.deepEqual(active(3, "both", 2), { activeIndex: 1, cardDir: "forward" });
-  assert.deepEqual(active(4, "both", 2), { activeIndex: 1, cardDir: "reverse" });
+test("resolveActiveCard ignores the coin for fixed forward/reverse directions", () => {
+  assert.deepEqual(active(1, "forward", 2, false), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(1, "reverse", 2, true), { activeIndex: 0, cardDir: "reverse" });
 });
 
 test("resolveActiveCard clamps out-of-range ordinals to the first structure", () => {
-  assert.deepEqual(active(0, "forward", 2), { activeIndex: 0, cardDir: "forward" });
-  assert.deepEqual(active(5, "forward", 2), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(0, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
+  assert.deepEqual(active(5, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
+});
+
+// ---- both-mode direction coin -----------------------------------------------
+
+test("directionCoin is deterministic per seed and returns a boolean", () => {
+  assert.equal(I.directionCoin(12345), I.directionCoin(12345));
+  assert.equal(typeof I.directionCoin(7), "boolean");
+});
+
+test("directionCoin produces both forward and reverse across seeds", () => {
+  let fwd = 0;
+  let rev = 0;
+  for (let s = 0; s < 60; s++) I.directionCoin(s) ? fwd++ : rev++;
+  assert.ok(fwd > 0 && rev > 0, `both outcomes appear: ${fwd} fwd / ${rev} rev`);
+});
+
+// ---- single-card cycler per-marker directions -------------------------------
+
+test("cyclerDirections is uniform for a fixed direction", () => {
+  assert.deepEqual([...I.cyclerDirections(1, 3, "forward")], [true, true, true]);
+  assert.deepEqual([...I.cyclerDirections(1, 3, "reverse")], [false, false, false]);
+});
+
+test("cyclerDirections is deterministic per seed and mixes for both", () => {
+  const a = [...I.cyclerDirections(999, 40, "both")];
+  const b = [...I.cyclerDirections(999, 40, "both")];
+  assert.deepEqual(a, b);
+  assert.equal(a.length, 40);
+  assert.ok(
+    a.some((x) => x === true) && a.some((x) => x === false),
+    "both mixes forward and backward across markers",
+  );
 });

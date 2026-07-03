@@ -84,6 +84,16 @@
     };
   }
 
+  /**
+   * A stable per-review forward/reverse coin for "both" mode, drawn from a
+   * SEPARATE seed stream so it never perturbs the placement rng. Returns true for
+   * forward, false for reverse; the front and back of one review share the seed,
+   * so they always agree.
+   */
+  function directionCoin(seed) {
+    return makeRng((seed ^ 0x9e3779b9) >>> 0)() < 0.5;
+  }
+
   function readSeed() {
     try {
       return window.sessionStorage.getItem(SEED_KEY);
@@ -502,12 +512,28 @@
     return bar;
   }
 
-  /** State machine driving the single-card type-and-cycle interaction. */
-  function makeCycler(structures, seed, cfg, bar) {
+  /**
+   * Per-cycle-position forward/backward assignment for single mode (true =
+   * forward). Only "both" mixes; a fixed direction applies uniformly. Drawn from
+   * a SEPARATE seed stream so it never disturbs the cycle order or placement.
+   * Pure — exposed on _internals for testing.
+   */
+  function cyclerDirections(seed, n, direction) {
+    var dirs = [];
+    var rng = makeRng((seed ^ 0x85ebca6b) >>> 0);
+    for (var i = 0; i < n; i++) {
+      dirs.push(direction === "both" ? rng() < 0.5 : direction !== "reverse");
+    }
+    return dirs;
+  }
+
+  /** State machine driving the single-card cycle interaction. */
+  function makeCycler(structures, seed, direction, cfg, bar) {
     var n = structures.length;
-    // The cycle order is stage-independent (depends only on the seed), so it is
-    // stable across every repaint / resize; centres are recomputed per paint.
+    // The cycle order and per-marker directions depend only on the seed, so they
+    // stay stable across every repaint / resize; centres are recomputed per paint.
     var order = shuffleIndices(n, makeRng(seed));
+    var forwards = cyclerDirections(seed, n, direction);
     var state = { idx: 0, revealed: false, results: [] };
     var input = bar.querySelector("#ro-input");
     var button = bar.querySelector("#ro-btn");
@@ -517,22 +543,35 @@
     function currentStructure() {
       return structures[order[state.idx]];
     }
+    function currentForward() {
+      return forwards[state.idx];
+    }
+    // Green/red only for graded (forward) answers; a backward "located" marker
+    // stays neutral because locating a structure is self-assessed.
+    function boxClass(result) {
+      if (result === "correct") return "ro-correct";
+      if (result === "wrong") return "ro-wrong";
+      return undefined;
+    }
 
     function updateBar() {
       var done = state.idx >= n;
       bar.classList.toggle("ro-done", done);
       if (progress) {
-        progress.textContent = done
-          ? n + " / " + n + " ✓"
-          : state.idx + 1 + " / " + n;
+        progress.textContent = done ? n + " / " + n + " ✓" : state.idx + 1 + " / " + n;
       }
-      if (input) input.style.display = done ? "none" : "";
+      // The type box only makes sense for a forward prompt awaiting its answer; a
+      // backward prompt asks you to locate the named structure (nothing to type).
+      var typing = !done && currentForward() && !state.revealed;
+      if (input) input.style.display = typing ? "" : "none";
       if (button) {
         button.textContent = done
           ? "Done — press Show Answer"
           : state.revealed
             ? "Next"
-            : "Check";
+            : currentForward()
+              ? "Check"
+              : "Reveal";
       }
     }
 
@@ -549,24 +588,26 @@
       // Already-answered structures stay revealed (accumulating answer key).
       for (var p = 0; p < state.idx && p < n; p++) {
         var ai = layout.order[p];
-        var av = state.results[p] === "correct" ? "ro-correct" : "ro-wrong";
-        drawBox(svg, layout.centers[ai], layout.targets[ai], layout.targets[ai].label, cfg, true, av);
+        drawBox(svg, layout.centers[ai], layout.targets[ai], layout.targets[ai].label, cfg, true, boxClass(state.results[p]));
       }
-      // Current structure: "?" until revealed, then its label.
+      // Current structure. Forward: "?" + arrow until revealed, then the label.
+      // Backward: show the label with NO arrow (you locate it), revealing the
+      // arrow to the structure on answer.
       if (state.idx < n) {
         var ci = layout.order[state.idx];
         if (state.revealed) {
-          var cv = state.results[state.idx] === "correct" ? "ro-correct" : "ro-wrong";
-          drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, cv);
-        } else {
+          drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, boxClass(state.results[state.idx]));
+        } else if (currentForward()) {
           drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true);
+        } else {
+          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false);
         }
       }
       updateBar();
     }
 
     function focusInput() {
-      if (input && state.idx < n && !state.revealed) {
+      if (input && state.idx < n && !state.revealed && currentForward()) {
         try {
           input.focus();
         } catch (e) {
@@ -575,19 +616,29 @@
       }
     }
 
-    function check() {
+    function reveal() {
       if (state.idx >= n || state.revealed) return;
-      var correct =
-        normalizeAnswer(input ? input.value : "") ===
-        normalizeAnswer(currentStructure().label);
-      state.results[state.idx] = correct ? "correct" : "wrong";
-      state.revealed = true;
-      if (feedback) {
-        feedback.textContent = correct
-          ? "✓ Correct"
-          : "✗ Answer: " + currentStructure().label;
-        feedback.className = "ro-feedback " + (correct ? "correct" : "wrong");
+      if (currentForward()) {
+        var correct =
+          normalizeAnswer(input ? input.value : "") ===
+          normalizeAnswer(currentStructure().label);
+        state.results[state.idx] = correct ? "correct" : "wrong";
+        if (feedback) {
+          feedback.textContent = correct
+            ? "✓ Correct"
+            : "✗ Answer: " + currentStructure().label;
+          feedback.className = "ro-feedback " + (correct ? "correct" : "wrong");
+        }
+      } else {
+        // Backward: a location can't be typed, so it is self-assessed — the arrow
+        // now points to the named structure to confirm where it is.
+        state.results[state.idx] = "located";
+        if (feedback) {
+          feedback.textContent = "Location: " + currentStructure().label;
+          feedback.className = "ro-feedback";
+        }
       }
+      state.revealed = true;
       paint();
     }
 
@@ -607,7 +658,7 @@
     function onButton() {
       if (state.idx >= n) return;
       if (state.revealed) next();
-      else check();
+      else reveal();
     }
 
     if (button) {
@@ -625,11 +676,11 @@
       input.addEventListener("keydown", function (e) {
         // Keep keystrokes from reaching Anki's shortcut handlers; typed spaces
         // are consumed by the focused input so they won't flip the card. Enter
-        // checks the answer rather than flipping (best effort).
+        // submits the current (forward) answer rather than flipping.
         e.stopPropagation();
         if (e.key === "Enter") {
           e.preventDefault();
-          check();
+          reveal();
         }
       });
     }
@@ -638,7 +689,7 @@
   }
 
   /** Single-card mode: interactive cycler on the front, answer key on the back. */
-  function renderSingle(structures, seed, back, cfg) {
+  function renderSingle(structures, seed, direction, back, cfg) {
     var svg = document.getElementById("ro-overlay");
     var img = getImage();
     if (!svg || !img) return;
@@ -661,7 +712,7 @@
     bar.style.display = "";
     var created = false;
     if (!bar.__roController) {
-      bar.__roController = makeCycler(structures, seed, cfg, bar);
+      bar.__roController = makeCycler(structures, seed, direction, cfg, bar);
       created = true;
     }
     // The controller's captured seed is the source of truth for the whole front
@@ -678,23 +729,22 @@
   // ---- orchestration --------------------------------------------------------
 
   /**
-   * Map the active cloze ordinal to a structure index and a card direction. In
-   * "both" mode each structure owns two consecutive ordinals (forward, then
-   * reverse); otherwise the ordinal is the structure's 1-based index. An
-   * out-of-range ordinal falls back to the first structure. Pure (no DOM/rng),
-   * so it is unit-tested via _internals.
+   * Map the active cloze ordinal to a structure index and a card direction. The
+   * ordinal is always the structure's 1-based index (every mode emits one card
+   * per structure). Direction is fixed for forward/reverse; for "both" the
+   * caller's per-review coin (preferForward) decides. An out-of-range ordinal
+   * falls back to the first structure. Pure (no DOM/rng), unit-tested via
+   * _internals.
    */
-  function resolveActiveCard(activeOrdinal, direction, count) {
-    var activeIndex;
+  function resolveActiveCard(activeOrdinal, direction, count, preferForward) {
+    var activeIndex = activeOrdinal - 1;
+    if (activeIndex < 0 || activeIndex >= count) activeIndex = 0;
     var cardDir;
     if (direction === "both") {
-      activeIndex = Math.floor((activeOrdinal - 1) / 2);
-      cardDir = activeOrdinal % 2 === 1 ? "forward" : "reverse";
+      cardDir = preferForward ? "forward" : "reverse";
     } else {
-      activeIndex = activeOrdinal - 1;
       cardDir = direction === "reverse" ? "reverse" : "forward";
     }
-    if (activeIndex < 0 || activeIndex >= count) activeIndex = 0;
     return { activeIndex: activeIndex, cardDir: cardDir };
   }
 
@@ -741,7 +791,7 @@
 
     // Single-card mode drives its own interactive cycler / answer key.
     if (data.mode === "single") {
-      renderSingle(structures, seed, back, cfg);
+      renderSingle(structures, seed, data.direction, back, cfg);
       return;
     }
 
@@ -753,8 +803,15 @@
     var rng = makeRng(seed);
     var stage = { w: width, h: height };
 
-    // Map the active cloze ordinal to a structure index and card direction.
-    var activeCard = resolveActiveCard(activeOrdinal, data.direction, structures.length);
+    // Map the active cloze ordinal to a structure index and card direction;
+    // "both" draws a fresh forward/reverse coin from this review's seed.
+    var preferForward = data.direction !== "both" || directionCoin(seed);
+    var activeCard = resolveActiveCard(
+      activeOrdinal,
+      data.direction,
+      structures.length,
+      preferForward
+    );
     var activeIndex = activeCard.activeIndex;
     var cardDir = activeCard.cardDir;
 
@@ -875,6 +932,8 @@
     shuffleIndices: shuffleIndices,
     normalizeAnswer: normalizeAnswer,
     resolveActiveCard: resolveActiveCard,
+    directionCoin: directionCoin,
+    cyclerDirections: cyclerDirections,
     computeSingleLayout: computeSingleLayout,
     decodeBase64Utf8: decodeBase64Utf8,
   };
