@@ -200,14 +200,38 @@ class MarkerDialog(QDialog):
 
         self._type_check = QCheckBox("Type the answer (Anki grades it)")
         self._type_check.setChecked(defaults.interaction == Interaction.TYPE)
-        self._type_check.setToolTip("Multi mode: type the label instead of flipping to reveal it")
+        self._type_check.setToolTip(
+            "Type the label and let Anki grade it, instead of flipping to reveal it."
+        )
         form.addRow("", self._type_check)
 
         self._context_check = QCheckBox("Show other labels as context")
         self._context_check.setChecked(defaults.context_labels)
         self._context_check.setToolTip("Reveal the other structures' labels around the tested one")
         form.addRow("", self._context_check)
+
+        # Single mode always types its "name it" (forward) markers, so refresh the
+        # "Type the answer" box whenever the mode or direction changes: lock it ON
+        # for single forward/both, and hide it for single + reverse (all "locate
+        # it", nothing to type). Multi mode leaves it free.
+        qconnect(self._mode_combo.currentIndexChanged, self._sync_type_option)
+        qconnect(self._direction_combo.currentIndexChanged, self._sync_type_option)
+        self._sync_type_option()
         return group
+
+    def _sync_type_option(self) -> None:
+        """Single mode's typing is fixed by the direction, so the box stays visible
+        but non-selectable: forward/both always type their 'name it' markers
+        (locked ON), reverse is all 'locate it' so typing is unavailable (locked
+        OFF). Multi mode leaves the box free to toggle."""
+        single = self._mode_combo.currentData() is CardMode.SINGLE
+        reverse = self._direction_combo.currentData() is Direction.REVERSE
+        self._type_check.setVisible(True)
+        if single:
+            self._type_check.setChecked(not reverse)  # forward/both on, reverse off
+            self._type_check.setEnabled(False)
+        else:
+            self._type_check.setEnabled(True)
 
     def _set_tab_order(self) -> None:
         self.setTabOrder(self._load_button, self._header_edit)

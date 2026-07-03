@@ -118,12 +118,14 @@ def test_context_labels_round_trip():
     assert loaded.options.context_labels is True
 
 
-def test_single_mode_round_trips_as_single_and_reveal():
-    # Single mode never sets the native type flag (it uses its own JS typer), so
-    # it always reads back as REVEAL regardless of the built interaction.
-    loaded = _roundtrip(CardOptions(mode=CardMode.SINGLE, interaction=Interaction.TYPE))
-    assert loaded.options.mode == CardMode.SINGLE
-    assert loaded.options.interaction == Interaction.REVEAL
+def test_single_mode_round_trips_its_interaction():
+    # Single mode carries the interaction in the payload, so type-vs-reveal now
+    # round-trips faithfully (it used to always read back as REVEAL).
+    typed = _roundtrip(CardOptions(mode=CardMode.SINGLE, interaction=Interaction.TYPE))
+    assert typed.options.mode == CardMode.SINGLE
+    assert typed.options.interaction == Interaction.TYPE
+    revealed = _roundtrip(CardOptions(mode=CardMode.SINGLE, interaction=Interaction.REVEAL))
+    assert revealed.options.interaction == Interaction.REVEAL
 
 
 # -- legacy and malformed data -------------------------------------------------
@@ -143,6 +145,40 @@ def test_reads_legacy_v1_bare_array_payload():
     loaded = NoteReader(DEFAULT_SPEC).read(fields)
     assert loaded.structures == _structures()
     assert loaded.options == CardOptions()  # multi / forward / reveal / no context
+
+
+def test_legacy_v2_single_without_interaction_reads_as_type():
+    # A single note whose v2 payload predates the "interaction" key must read back
+    # as TYPE (render.js defaults such notes to type), so a plain edit + save can't
+    # silently flip it to reveal.
+    payload = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "single",
+            "direction": "forward",
+            "structures": [s.to_dict() for s in _structures().ordered],
+        }
+    )
+    loaded = NoteReader(DEFAULT_SPEC).read({"Structures": payload, "TypeAnswer": ""})
+    assert loaded.options.mode == CardMode.SINGLE
+    assert loaded.options.interaction == Interaction.TYPE
+
+
+def test_legacy_v2_multi_without_interaction_uses_the_type_flag_field():
+    # A legacy multi note without the payload key still derives type/reveal from
+    # the TypeAnswer field, exactly as before the payload carried interaction.
+    payload = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "multi",
+            "direction": "forward",
+            "structures": [s.to_dict() for s in _structures().ordered],
+        }
+    )
+    typed = NoteReader(DEFAULT_SPEC).read({"Structures": payload, "TypeAnswer": "1"})
+    assert typed.options.interaction == Interaction.TYPE
+    revealed = NoteReader(DEFAULT_SPEC).read({"Structures": payload, "TypeAnswer": ""})
+    assert revealed.options.interaction == Interaction.REVEAL
 
 
 def test_missing_structures_field_raises():

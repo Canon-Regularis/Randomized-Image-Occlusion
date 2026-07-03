@@ -89,18 +89,24 @@ class NoteReader:
 
     def read(self, fields: Mapping[str, str]) -> LoadedNote:
         spec = self._spec
-        structures, direction, mode, context_labels = self._parse_payload(
-            fields.get(spec.structures_field, "")
+        structures, direction, mode, context_labels, payload_interaction = (
+            self._parse_payload(fields.get(spec.structures_field, ""))
         )
-        # The native type-in box is the only thing that distinguishes "reveal"
-        # from "type" in the stored fields (single mode never uses it, so single
-        # notes always read back as "reveal" — harmless, its own JS typer runs
-        # regardless). A non-empty flag means the note was built with type-in on.
-        interaction = (
-            Interaction.TYPE
-            if str(fields.get(spec.type_flag_field, "")).strip()
-            else Interaction.REVEAL
-        )
+        # The interaction (type vs reveal) is carried in the payload for every
+        # note. Notes that predate that key fall back to the TypeAnswer field
+        # (which only multi mode sets); a legacy SINGLE note has neither, so
+        # default it to "type" to match how render.js renders such notes — that
+        # keeps a plain edit + save from silently flipping it to reveal.
+        if payload_interaction is not None:
+            interaction = payload_interaction
+        elif mode == CardMode.SINGLE:
+            interaction = Interaction.TYPE
+        else:
+            interaction = (
+                Interaction.TYPE
+                if str(fields.get(spec.type_flag_field, "")).strip()
+                else Interaction.REVEAL
+            )
         options = CardOptions(
             direction=direction,
             interaction=interaction,
@@ -117,9 +123,10 @@ class NoteReader:
 
     def _parse_payload(
         self, encoded: str
-    ) -> tuple[StructureSet, Direction, CardMode, bool]:
+    ) -> tuple[StructureSet, Direction, CardMode, bool, Interaction | None]:
         """Decode the ``Structures`` field into (structures, direction, mode,
-        context-labels), accepting both the v2 object and the legacy v1 array.
+        context-labels, interaction), accepting both the v2 object and the legacy
+        v1 array. ``interaction`` is ``None`` when the payload predates that key.
 
         Mirrors the reviewer's ``readData``: a bare array is a pre-settings note
         (multi / forward / no context labels); the v2 object is self-describing.
@@ -139,12 +146,15 @@ class NoteReader:
             raise ValueError("this note's structure data could not be decoded") from exc
 
         if isinstance(payload, list):
-            return StructureSet.from_dicts(payload), Direction.FORWARD, CardMode.MULTI, False
+            return StructureSet.from_dicts(payload), Direction.FORWARD, CardMode.MULTI, False, None
         if isinstance(payload, dict) and isinstance(payload.get("structures"), list):
             return (
                 StructureSet.from_dicts(payload["structures"]),
                 Direction.coerce(payload.get("direction"), Direction.FORWARD),
                 CardMode.coerce(payload.get("mode"), CardMode.MULTI),
                 bool(payload.get("contextLabels")),
+                Interaction.coerce(payload.get("interaction"), Interaction.REVEAL)
+                if "interaction" in payload
+                else None,
             )
         raise ValueError("this note's structure data is malformed")

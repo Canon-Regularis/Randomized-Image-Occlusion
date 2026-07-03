@@ -69,14 +69,6 @@ def _random_options(rng: random.Random) -> CardOptions:
     )
 
 
-def _expected_interaction(options: CardOptions) -> Interaction:
-    # Single mode uses its own JS typer, so the native type flag is never set and
-    # it always reads back as REVEAL.
-    if options.mode != CardMode.SINGLE and options.interaction == Interaction.TYPE:
-        return Interaction.TYPE
-    return Interaction.REVEAL
-
-
 # ---- the headline invariant: build -> read is lossless -----------------------
 
 
@@ -105,7 +97,7 @@ def test_factory_reader_roundtrip(seed: int) -> None:
     assert loaded.options.direction == options.direction
     assert loaded.options.mode == options.mode
     assert loaded.options.context_labels == options.context_labels
-    assert loaded.options.interaction == _expected_interaction(options)
+    assert loaded.options.interaction == options.interaction
 
 
 # ---- the wire format round-trips and never leaks injection characters --------

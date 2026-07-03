@@ -156,17 +156,18 @@
       }
     }
     if (Array.isArray(parsed)) {
-      return { mode: "multi", direction: "forward", contextLabels: undefined, structures: parsed };
+      return { mode: "multi", direction: "forward", interaction: "type", contextLabels: undefined, structures: parsed };
     }
     if (parsed && Array.isArray(parsed.structures)) {
       return {
         mode: parsed.mode === "single" ? "single" : "multi",
         direction: parsed.direction || "forward",
+        interaction: parsed.interaction || "type",
         contextLabels: parsed.contextLabels,
         structures: parsed.structures,
       };
     }
-    return { mode: "multi", direction: "forward", contextLabels: undefined, structures: [] };
+    return { mode: "multi", direction: "forward", interaction: "type", contextLabels: undefined, structures: [] };
   }
 
   /**
@@ -528,7 +529,7 @@
   }
 
   /** State machine driving the single-card cycle interaction. */
-  function makeCycler(structures, seed, direction, cfg, bar) {
+  function makeCycler(structures, seed, direction, typeMode, cfg, bar) {
     var n = structures.length;
     // The cycle order and per-marker directions depend only on the seed, so they
     // stay stable across every repaint / resize; centres are recomputed per paint.
@@ -546,6 +547,12 @@
     function currentForward() {
       return forwards[state.idx];
     }
+    // A marker is typed only when it is a forward ("name it") marker AND the note
+    // is in type mode; otherwise it is recall-and-reveal (self-assessed). The
+    // pre-reveal display still keys off currentForward() ("?"+arrow vs label).
+    function currentTyped() {
+      return typeMode && currentForward();
+    }
     // Green/red only for graded (forward) answers; a backward "located" marker
     // stays neutral because locating a structure is self-assessed.
     function boxClass(result) {
@@ -560,17 +567,17 @@
       if (progress) {
         progress.textContent = done ? n + " / " + n + " ✓" : state.idx + 1 + " / " + n;
       }
-      // Keep the input visible (and focused) through a forward marker's reveal so
-      // it keeps shielding Space/Enter from Anki's card-flip shortcut; only
-      // backward markers (nothing to type) and the done state hide it.
-      var typing = !done && currentForward();
+      // Keep the input visible (and focused) through a typed marker's reveal so
+      // it keeps shielding Space/Enter from Anki's card-flip shortcut; recall
+      // markers (nothing to type) and the done state hide it.
+      var typing = !done && currentTyped();
       if (input) input.style.display = typing ? "" : "none";
       if (button) {
         button.textContent = done
           ? "Done — press Show Answer"
           : state.revealed
             ? "Next"
-            : currentForward()
+            : currentTyped()
               ? "Check"
               : "Reveal";
       }
@@ -613,7 +620,7 @@
     function focusCurrent() {
       if (state.idx >= n) return;
       try {
-        if (currentForward()) {
+        if (currentTyped()) {
           if (!state.revealed && input) input.focus();
         } else if (button) {
           button.focus();
@@ -625,7 +632,7 @@
 
     function reveal() {
       if (state.idx >= n || state.revealed) return;
-      if (currentForward()) {
+      if (currentTyped()) {
         var correct =
           normalizeAnswer(input ? input.value : "") ===
           normalizeAnswer(currentStructure().label);
@@ -637,11 +644,14 @@
           feedback.className = "ro-feedback " + (correct ? "correct" : "wrong");
         }
       } else {
-        // Backward: a location can't be typed, so it is self-assessed — the arrow
-        // now points to the named structure to confirm where it is.
-        state.results[state.idx] = "located";
+        // Recall marker (self-assessed, nothing to grade): a "name it" marker in
+        // reveal mode confirms the name; a "locate it" marker confirms where the
+        // structure is (the arrow now points to it).
+        state.results[state.idx] = "revealed";
         if (feedback) {
-          feedback.textContent = "Location: " + currentStructure().label;
+          feedback.textContent = currentForward()
+            ? currentStructure().label
+            : "Location: " + currentStructure().label;
           feedback.className = "ro-feedback";
         }
       }
@@ -703,7 +713,7 @@
   }
 
   /** Single-card mode: interactive cycler on the front, answer key on the back. */
-  function renderSingle(structures, seed, direction, back, cfg) {
+  function renderSingle(structures, seed, direction, typeMode, back, cfg) {
     var svg = document.getElementById("ro-overlay");
     var img = getImage();
     if (!svg || !img) return;
@@ -726,7 +736,7 @@
     bar.style.display = "";
     var created = false;
     if (!bar.__roController) {
-      bar.__roController = makeCycler(structures, seed, direction, cfg, bar);
+      bar.__roController = makeCycler(structures, seed, direction, typeMode, cfg, bar);
       created = true;
     }
     // The controller's captured seed is the source of truth for the whole front
@@ -805,7 +815,7 @@
 
     // Single-card mode drives its own interactive cycler / answer key.
     if (data.mode === "single") {
-      renderSingle(structures, seed, data.direction, back, cfg);
+      renderSingle(structures, seed, data.direction, data.interaction === "type", back, cfg);
       return;
     }
 

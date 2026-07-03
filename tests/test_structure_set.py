@@ -5,7 +5,12 @@ import json
 
 import pytest
 
-from randomized_occlusion.domain.card_options import CardMode, CardOptions, Direction
+from randomized_occlusion.domain.card_options import (
+    CardMode,
+    CardOptions,
+    Direction,
+    Interaction,
+)
 from randomized_occlusion.domain.geometry import NormalizedPoint
 from randomized_occlusion.domain.structure import Structure
 from randomized_occlusion.domain.structure_set import StructureSet
@@ -78,10 +83,17 @@ def test_single_mode_emits_exactly_one_cloze():
 def test_payload_carries_options_and_structures():
     s = StructureSet.from_unordered([_s(1, "a", x=0.1, y=0.2)])
     payload = _decode_payload(
-        s.to_payload_base64(CardOptions(direction=Direction.REVERSE, mode=CardMode.SINGLE))
+        s.to_payload_base64(
+            CardOptions(
+                direction=Direction.REVERSE,
+                mode=CardMode.SINGLE,
+                interaction=Interaction.TYPE,
+            )
+        )
     )
     assert payload["direction"] == "reverse"
     assert payload["mode"] == "single"
+    assert payload["interaction"] == "type"
     assert payload["structures"][0] == {"ord": 1, "x": 0.1, "y": 0.2, "label": "a"}
 
 
@@ -90,12 +102,20 @@ def test_payload_serialises_enums_as_plain_strings():
     s = StructureSet.from_unordered([_s(1, "a")])
     for direction in Direction:
         for mode in CardMode:
-            raw = base64.b64decode(
-                s.to_payload_base64(CardOptions(direction=direction, mode=mode))
-            ).decode("utf-8")
-            assert f'"direction":"{direction.value}"' in raw
-            assert f'"mode":"{mode.value}"' in raw
-            assert "Direction." not in raw and "CardMode." not in raw
+            for interaction in Interaction:
+                raw = base64.b64decode(
+                    s.to_payload_base64(
+                        CardOptions(direction=direction, mode=mode, interaction=interaction)
+                    )
+                ).decode("utf-8")
+                assert f'"direction":"{direction.value}"' in raw
+                assert f'"mode":"{mode.value}"' in raw
+                assert f'"interaction":"{interaction.value}"' in raw
+                assert (
+                    "Direction." not in raw
+                    and "CardMode." not in raw
+                    and "Interaction." not in raw
+                )
 
 
 def test_payload_roundtrip_preserves_unicode_labels():

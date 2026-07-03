@@ -125,6 +125,7 @@ class StructureSet:
             "v": 2,
             "mode": options.mode.value,
             "direction": options.direction.value,
+            "interaction": options.interaction.value,
             "contextLabels": options.context_labels,
             "structures": [s.to_dict() for s in self.ordered],
         }
