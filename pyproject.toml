@@ -10,6 +10,12 @@ license = { file = "LICENSE" }
 # The dependencies below are only needed for development/testing.
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8"]
+# Anki's own libraries (`aqt`, `anki`) exist only inside Anki at runtime, so CI
+# does NOT install them — mypy uses `ignore_missing_imports` instead. Install
+# this extra locally (`pip install -e ".[anki]"`) ONLY if you want your editor to
+# resolve `from aqt import ...` / `from anki import ...` and offer autocomplete;
+# it is never required to run the tests. (It pulls PyQt6, so it's a large install.)
+anki = ["aqt>=23.10", "anki>=23.10"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
