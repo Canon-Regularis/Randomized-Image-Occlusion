@@ -24,11 +24,28 @@ OUTPUT = DIST_DIR / "randomized_occlusion.ankiaddon"
 EXCLUDED_NAMES = {"__pycache__", "meta.json", ".DS_Store"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
+# A fixed timestamp and file metadata for every zip entry, so building the same
+# source twice (on any machine/OS) yields a byte-identical .ankiaddon. Without
+# this, each entry would embed its file's on-disk mtime (and the host OS), and
+# two clean checkouts of the same commit would hash differently. 1980-01-01 is
+# the earliest the zip format can represent.
+_FIXED_DATE = (1980, 1, 1, 0, 0, 0)
+_UNIX_RW_R_R = 0o644 << 16  # regular file, rw-r--r-- — stable across platforms
+
 
 def _included(path: Path) -> bool:
     if any(part in EXCLUDED_NAMES for part in path.parts):
         return False
     return path.suffix not in EXCLUDED_SUFFIXES
+
+
+def _entry(arcname: str) -> zipfile.ZipInfo:
+    """A ZipInfo with pinned metadata so the archive is byte-reproducible."""
+    info = zipfile.ZipInfo(arcname, date_time=_FIXED_DATE)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3  # Unix — fixed regardless of the build host's OS
+    info.external_attr = _UNIX_RW_R_R
+    return info
 
 
 def _read_version() -> str:
@@ -68,10 +85,12 @@ def build() -> Path:
             if not path.is_file() or not _included(path):
                 continue
             arcname = path.relative_to(PACKAGE_DIR).as_posix()
-            if arcname == "manifest.json":
-                archive.writestr(arcname, _manifest_bytes(path, version))
-            else:
-                archive.write(path, arcname)
+            data = (
+                _manifest_bytes(path, version)
+                if arcname == "manifest.json"
+                else path.read_bytes()
+            )
+            archive.writestr(_entry(arcname), data)
             count += 1
 
     print(f"Wrote {OUTPUT.relative_to(ROOT)} v{version} ({count} files)")

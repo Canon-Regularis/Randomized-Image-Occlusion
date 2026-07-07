@@ -44,14 +44,17 @@ def _as_float(value: Any, default: float, *, low: float, high: float) -> float:
     return max(low, min(high, number))
 
 
-def _as_int(value: Any, default: int, *, minimum: int) -> int:
+def _as_int(value: Any, default: int, *, minimum: int, maximum: int | None = None) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError, OverflowError):
         # OverflowError: int(float("inf")) — a hand-edited config can smuggle
         # a non-finite value in via JSON, and from_mapping must stay total.
         return default
-    return max(minimum, number)
+    number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -120,6 +123,10 @@ class RenderConfig:
                 get("max_placement_attempts"),
                 DEFAULT_CONFIG["max_placement_attempts"],
                 minimum=1,
+                # Cap so a hand-edited absurd value (e.g. 10^8) can't make the
+                # renderer's per-structure placement loop hang the webview. 1000
+                # is ~20x the default and still completes in well under a frame.
+                maximum=1000,
             ),
             show_decoy_dots=_as_bool(
                 get("show_decoy_dots"), DEFAULT_CONFIG["show_decoy_dots"]

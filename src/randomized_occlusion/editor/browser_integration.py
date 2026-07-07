@@ -75,12 +75,20 @@ class BrowserEditIntegration:
         return note_ids[0]
 
     def _open(self, note_id: int) -> None:
+        if self._host.is_showing():
+            return  # one edit dialog at a time — a second open would drop the
+            # host's only strong ref to the first and let two dialogs race Save
         col = self._mw.col
         if col is None:
             return
         try:
             note = col.get_note(note_id)
-            loaded = NoteReader(self._spec).read(note_fields(note))
+            # A legacy note with no stored contextLabels renders using the global
+            # config, so prefill the editor from the same source (see NoteReader).
+            loaded = NoteReader(self._spec).read(
+                note_fields(note),
+                context_labels_default=self._config.render_config().show_context_labels,
+            )
         except Exception as exc:
             showWarning(
                 "This note could not be opened for editing:\n\n"

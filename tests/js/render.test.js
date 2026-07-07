@@ -236,6 +236,23 @@ test("resolveActiveCard clamps out-of-range ordinals to the first structure", ()
   assert.deepEqual(active(5, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
 });
 
+// ---- lone target dot must not leak a reverse card's answer ------------------
+
+test("targetDotVisible hides the lone dot only on a reverse question side", () => {
+  const on = { showTargetDot: true };
+  const off = { showTargetDot: false };
+  // Forward: dot marks where the arrow points — always fine.
+  assert.equal(I.targetDotVisible(on, false, false), true); // forward front
+  assert.equal(I.targetDotVisible(on, false, true), true); // forward back
+  // Reverse: the question side ("locate it") must NOT show the dot (it sits on
+  // the answer location); the back reveals it alongside the arrow.
+  assert.equal(I.targetDotVisible(on, true, false), false); // reverse front — leak guarded
+  assert.equal(I.targetDotVisible(on, true, true), true); // reverse back — reveal
+  // With the dot disabled entirely, it never shows regardless of side.
+  assert.equal(I.targetDotVisible(off, true, false), false);
+  assert.equal(I.targetDotVisible(off, false, false), false);
+});
+
 // ---- both-mode direction coin -----------------------------------------------
 
 test("directionCoin is deterministic per seed and returns a boolean", () => {

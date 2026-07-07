@@ -45,6 +45,7 @@ def add_randomized_occlusion_note(
     render_config: RenderConfig,
     spec: NoteTypeSpec = DEFAULT_SPEC,
     on_success: Callable[[Any], None] | None = None,
+    on_failure: Callable[[Exception], None] | None = None,
 ) -> None:
     """Run the note-creation ``CollectionOp`` in the background."""
 
@@ -75,4 +76,4 @@ def add_randomized_occlusion_note(
 
         return commit_with_undo(col, _UNDO_NAME, lambda: col.add_note(note, deck_id))
 
-    run_note_op(parent=parent, op=op, on_success=on_success)
+    run_note_op(parent=parent, op=op, on_success=on_success, on_failure=on_failure)

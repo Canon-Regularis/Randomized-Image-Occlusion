@@ -66,6 +66,17 @@ def test_max_placement_attempts_clamped_to_at_least_one():
     assert RenderConfig.from_mapping({"max_placement_attempts": -5}).max_placement_attempts == 1
 
 
+def test_max_placement_attempts_clamped_on_the_high_side():
+    # A hand-edited absurd value must be capped so the renderer's per-structure
+    # placement loop can't hang the webview (the default is well under the cap).
+    def attempts(value: int) -> int:
+        return RenderConfig.from_mapping({"max_placement_attempts": value}).max_placement_attempts
+
+    assert attempts(100_000_000) == 1000  # absurd value capped
+    assert attempts(1000) == 1000  # exactly at the cap
+    assert attempts(60) == 60  # a normal value is untouched
+
+
 def test_non_finite_int_config_falls_back_instead_of_crashing():
     # json.loads accepts Infinity/NaN, so a hand-edited config can smuggle a
     # non-finite value into an int field; int(inf) raises OverflowError.

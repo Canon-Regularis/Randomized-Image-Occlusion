@@ -20,10 +20,13 @@ def run_note_op(
     parent: Any,
     op: Callable[[Any], Any],
     on_success: Callable[[Any], None] | None,
+    on_failure: Callable[[Exception], None] | None = None,
 ) -> None:
     operation = CollectionOp(parent=parent, op=op)
     if on_success is not None:
         operation = operation.success(on_success)
+    if on_failure is not None:
+        operation = operation.failure(on_failure)
     operation.run_in_background()
 
 

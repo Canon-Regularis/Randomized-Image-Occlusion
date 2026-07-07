@@ -181,6 +181,54 @@ def test_legacy_v2_multi_without_interaction_uses_the_type_flag_field():
     assert revealed.options.interaction == Interaction.REVEAL
 
 
+def test_legacy_payload_context_labels_falls_back_to_the_supplied_default():
+    # A payload predating the contextLabels key (v1 array, or a v2 note from
+    # before the key) has no stored value. render.js renders such notes using the
+    # GLOBAL config, so the reader must mirror that via context_labels_default —
+    # otherwise editing + saving would bake in a literal False and silently
+    # suppress the context labels the note currently shows.
+    v1_payload = encode_json_b64([s.to_dict() for s in _structures().ordered])
+    v2_no_ctx = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "multi",
+            "direction": "forward",
+            "interaction": "reveal",
+            "structures": [s.to_dict() for s in _structures().ordered],
+        }
+    )
+    for payload in (v1_payload, v2_no_ctx):
+        fields = {"Structures": payload, "TypeAnswer": ""}
+        on = NoteReader(DEFAULT_SPEC).read(fields, context_labels_default=True)
+        off = NoteReader(DEFAULT_SPEC).read(fields, context_labels_default=False)
+        assert on.options.context_labels is True
+        assert off.options.context_labels is False
+    # Default is False when the caller supplies nothing (back-compat).
+    assert NoteReader(DEFAULT_SPEC).read(
+        {"Structures": v1_payload, "TypeAnswer": ""}
+    ).options.context_labels is False
+
+
+def test_explicit_context_labels_ignores_the_default():
+    # A v2 payload that DID store the key must use the stored value, not the
+    # fallback — so a user who turned context labels off keeps them off even if
+    # the global config default is on.
+    payload = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "multi",
+            "direction": "forward",
+            "interaction": "reveal",
+            "contextLabels": False,
+            "structures": [s.to_dict() for s in _structures().ordered],
+        }
+    )
+    loaded = NoteReader(DEFAULT_SPEC).read(
+        {"Structures": payload, "TypeAnswer": ""}, context_labels_default=True
+    )
+    assert loaded.options.context_labels is False
+
+
 def test_missing_structures_field_raises():
     fields = {"Image": '<img src="x.png">', "Structures": ""}
     with pytest.raises(ValueError, match="no stored structures"):

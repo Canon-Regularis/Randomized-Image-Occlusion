@@ -89,6 +89,9 @@ class MarkerDialog(QDialog):
         )
         self._deck_combo: QComboBox | None = None
         self._web_ready = False
+        # Held from the moment a Save is committed until the async persist op
+        # resolves, so a second Save press can't queue a duplicate note.
+        self._saving = False
         self._marker_count = len(prefill.structures) if prefill is not None else 0
         # An image to show once the webview signals it is ready. (data_url, markers).
         self._pending_display: tuple[str, list[dict[str, Any]] | None] | None = None
@@ -199,10 +202,19 @@ class MarkerDialog(QDialog):
         form.addRow("Direction:", self._direction_combo)
 
         self._type_check = QCheckBox("Type the answer (Anki grades it)")
-        self._type_check.setChecked(defaults.interaction == Interaction.TYPE)
+        # The user's own multi-mode choice, remembered so a detour through single
+        # mode (which force-locks the box) can restore it on the way back rather
+        # than leaving single mode's forced value behind (which would silently
+        # flip the saved interaction).
+        self._manual_type_choice = defaults.interaction == Interaction.TYPE
+        self._type_check.setChecked(self._manual_type_choice)
         self._type_check.setToolTip(
             "Type the label and let Anki grade it, instead of flipping to reveal it."
         )
+        # `clicked` fires only on genuine user interaction (not programmatic
+        # setChecked), and the box is disabled in single mode, so this records
+        # exactly the user's manual multi-mode intent.
+        qconnect(self._type_check.clicked, self._on_type_clicked)
         form.addRow("", self._type_check)
 
         self._context_check = QCheckBox("Show other labels as context")
@@ -219,17 +231,24 @@ class MarkerDialog(QDialog):
         self._sync_type_option()
         return group
 
+    def _on_type_clicked(self, checked: bool) -> None:
+        """Remember the user's manual (multi-mode) 'Type the answer' choice."""
+        self._manual_type_choice = checked
+
     def _sync_type_option(self) -> None:
         """Single mode's typing is fixed by the direction, so the box stays visible
         but non-selectable: forward/both always type their 'name it' markers
         (locked ON), reverse is all 'locate it' so typing is unavailable (locked
-        OFF). Multi mode leaves the box free to toggle."""
+        OFF). Multi mode restores the user's own choice and leaves the box free to
+        toggle — so a detour into single mode never rewrites their multi-mode
+        interaction."""
         single = self._mode_combo.currentData() is CardMode.SINGLE
         reverse = self._direction_combo.currentData() is Direction.REVERSE
         if single:
             self._type_check.setChecked(not reverse)  # forward/both on, reverse off
             self._type_check.setEnabled(False)
         else:
+            self._type_check.setChecked(self._manual_type_choice)
             self._type_check.setEnabled(True)
 
     def _set_tab_order(self) -> None:
@@ -361,15 +380,25 @@ class MarkerDialog(QDialog):
     # -- saving ----------------------------------------------------------------
 
     def _save(self) -> None:
+        if self._saving:
+            return  # a save is already in flight; ignore the extra press
         if not self._has_image():
             showWarning("Load an image before saving.")
             return
         # Reading the markers is an async round-trip to the webview. Freeze the
         # image controls until it returns so the picture can't be swapped in that
         # window — otherwise the markers we're about to capture (which belong to
-        # the image shown *now*) could be paired with a different image.
+        # the image shown *now*) could be paired with a different image. The
+        # `_saving` lock is held from here until the persist op resolves so a
+        # second Save press can't queue a duplicate note.
+        self._saving = True
         self._freeze_for_save(True)
         self.web.evalWithCallback("ROEditor.getMarkers()", self._on_markers)
+
+    def _abort_save(self) -> None:
+        """Release the pre-save freeze so the user can fix input and retry."""
+        self._saving = False
+        self._freeze_for_save(False)
 
     def _freeze_for_save(self, frozen: bool) -> None:
         self._load_button.setEnabled(not frozen)
@@ -380,13 +409,13 @@ class MarkerDialog(QDialog):
             self._update_save_enabled()
 
     def _on_markers(self, markers: Any) -> None:
-        # Markers are now captured for the image that was shown when Save ran;
-        # it is safe to let the image be changed again.
-        self._freeze_for_save(False)
+        # Markers are now captured for the image that was shown when Save ran.
         if not self._has_image():  # image was cleared between Save and callback
+            self._abort_save()
             return
         structures = self._structures_from_markers(markers)
         if structures is None:  # invalid input; the helper already told the user
+            self._abort_save()
             return
         result = MarkupResult(
             structures=structures,
@@ -399,6 +428,9 @@ class MarkerDialog(QDialog):
                 self._deck_combo.currentText() if self._deck_combo is not None else None
             ),
         )
+        # Controls stay frozen and `_saving` stays held until the background
+        # persist op resolves: on success the saver closes the dialog via
+        # finish_saved(); on failure it calls save_failed() to release the lock.
         self._saver.save(self, result)
 
     def _structures_from_markers(self, markers: Any) -> StructureSet | None:
@@ -443,8 +475,15 @@ class MarkerDialog(QDialog):
 
     def finish_saved(self, message: str) -> None:
         """Called by a saver once persistence succeeds: notify and close."""
+        self._saving = False
         tooltip(message)
         self.accept()
+
+    def save_failed(self, message: str) -> None:
+        """Called by a saver if persistence fails: release the save lock so the
+        user can retry, and surface the error."""
+        self._abort_save()
+        showWarning(message)
 
     # -- status / lifecycle ----------------------------------------------------
 
@@ -460,7 +499,11 @@ class MarkerDialog(QDialog):
     def _update_save_enabled(self) -> None:
         save = self._buttons.button(QDialogButtonBox.StandardButton.Save)
         if save is not None:
-            save.setEnabled(self._has_image() and self._marker_count > 0)
+            # Never re-enable Save while a persist op is in flight (`_saving`),
+            # so a second press can't queue a duplicate note.
+            save.setEnabled(
+                not self._saving and self._has_image() and self._marker_count > 0
+            )
 
     def _on_finished(self, _result: int) -> None:
         # AnkiWebView should be torn down explicitly or Anki can leak/crash on

@@ -54,6 +54,7 @@ def update_randomized_occlusion_note(
     render_config: RenderConfig,
     spec: NoteTypeSpec = DEFAULT_SPEC,
     on_success: Callable[[Any], None] | None = None,
+    on_failure: Callable[[Exception], None] | None = None,
 ) -> None:
     """Run the note-editing ``CollectionOp`` in the background."""
 
@@ -87,4 +88,4 @@ def update_randomized_occlusion_note(
         # ordinals the edit added or removed.
         return commit_with_undo(col, _UNDO_NAME, lambda: col.update_note(note))
 
-    run_note_op(parent=parent, op=op, on_success=on_success)
+    run_note_op(parent=parent, op=op, on_success=on_success, on_failure=on_failure)

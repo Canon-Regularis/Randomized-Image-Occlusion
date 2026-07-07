@@ -97,6 +97,7 @@ class CreateNoteSaver(NoteSaver):
             render_config=self._config.render_config(),
             spec=self._spec,
             on_success=lambda _changes: dialog.finish_saved(f"Added {_cards(count)}."),
+            on_failure=lambda exc: dialog.save_failed(f"Could not add the card:\n\n{exc}"),
         )
 
 
@@ -132,4 +133,5 @@ class UpdateNoteSaver(NoteSaver):
             render_config=self._config.render_config(),
             spec=self._spec,
             on_success=lambda _changes: dialog.finish_saved("Card updated."),
+            on_failure=lambda exc: dialog.save_failed(f"Could not update the card:\n\n{exc}"),
         )

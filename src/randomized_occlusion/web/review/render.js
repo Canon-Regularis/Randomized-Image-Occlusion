@@ -772,6 +772,17 @@
     return { activeIndex: activeIndex, cardDir: cardDir };
   }
 
+  /**
+   * Whether to draw the lone target dot (the decoy-dots-off case). It marks
+   * where a forward card's arrow points, and marks the answer on a reverse
+   * card's back. But on a reverse QUESTION side (locate the named structure) the
+   * dot would sit on the exact spot the learner must recall, revealing the
+   * answer, so it is suppressed there. Pure — exposed on _internals for testing.
+   */
+  function targetDotVisible(cfg, isReverse, back) {
+    return !!cfg.showTargetDot && !(isReverse && !back);
+  }
+
   function render(mint) {
     var stageEl = document.getElementById("ro-stage");
     var img = getImage();
@@ -879,7 +890,7 @@
       // right one instead of recognising a lone dot.
       if (cfg.showDecoyDots) {
         for (var e = 0; e < targets.length; e++) drawDot(svg, targets[e]);
-      } else if (cfg.showTargetDot) {
+      } else if (targetDotVisible(cfg, isReverse, back)) {
         drawDot(svg, active);
       }
       var center = placeCenter(rng, stage, active, cfg);
@@ -956,6 +967,7 @@
     shuffleIndices: shuffleIndices,
     normalizeAnswer: normalizeAnswer,
     resolveActiveCard: resolveActiveCard,
+    targetDotVisible: targetDotVisible,
     directionCoin: directionCoin,
     cyclerDirections: cyclerDirections,
     computeSingleLayout: computeSingleLayout,

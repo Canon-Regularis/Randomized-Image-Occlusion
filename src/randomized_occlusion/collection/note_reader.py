@@ -87,11 +87,20 @@ class NoteReader:
     def __init__(self, spec: NoteTypeSpec) -> None:
         self._spec = spec
 
-    def read(self, fields: Mapping[str, str]) -> LoadedNote:
+    def read(
+        self, fields: Mapping[str, str], *, context_labels_default: bool = False
+    ) -> LoadedNote:
         spec = self._spec
         structures, direction, mode, context_labels, payload_interaction = (
             self._parse_payload(fields.get(spec.structures_field, ""))
         )
+        # A payload predating the contextLabels key (a v1 array, or a v2 note from
+        # before per-note context labels) has no stored value. render.js falls
+        # back to the global config for such notes, so mirror that here via the
+        # caller-supplied default — otherwise editing + saving would bake in a
+        # literal False and silently suppress the labels the note currently shows.
+        if context_labels is None:
+            context_labels = context_labels_default
         # The interaction (type vs reveal) is carried in the payload for every
         # note. Notes that predate that key fall back to the TypeAnswer field
         # (which only multi mode sets); a legacy SINGLE note has neither, so
@@ -123,10 +132,11 @@ class NoteReader:
 
     def _parse_payload(
         self, encoded: str
-    ) -> tuple[StructureSet, Direction, CardMode, bool, Interaction | None]:
+    ) -> tuple[StructureSet, Direction, CardMode, bool | None, Interaction | None]:
         """Decode the ``Structures`` field into (structures, direction, mode,
         context-labels, interaction), accepting both the v2 object and the legacy
-        v1 array. ``interaction`` is ``None`` when the payload predates that key.
+        v1 array. ``context-labels`` and ``interaction`` are ``None`` when the
+        payload predates those keys (the caller supplies the fallback).
 
         Mirrors the reviewer's ``readData``: a bare array is a pre-settings note
         (multi / forward / no context labels); the v2 object is self-describing.
@@ -146,13 +156,13 @@ class NoteReader:
             raise ValueError("this note's structure data could not be decoded") from exc
 
         if isinstance(payload, list):
-            return StructureSet.from_dicts(payload), Direction.FORWARD, CardMode.MULTI, False, None
+            return StructureSet.from_dicts(payload), Direction.FORWARD, CardMode.MULTI, None, None
         if isinstance(payload, dict) and isinstance(payload.get("structures"), list):
             return (
                 StructureSet.from_dicts(payload["structures"]),
                 Direction.coerce(payload.get("direction"), Direction.FORWARD),
                 CardMode.coerce(payload.get("mode"), CardMode.MULTI),
-                bool(payload.get("contextLabels")),
+                bool(payload.get("contextLabels")) if "contextLabels" in payload else None,
                 Interaction.coerce(payload.get("interaction"), Interaction.REVEAL)
                 if "interaction" in payload
                 else None,
