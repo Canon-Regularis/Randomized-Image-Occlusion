@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1]
+
+### Fixed
+- Switching a note's mode to **Single** and back to **Multi** no longer silently
+  changes how it's answered. Single mode locks the **Type the answer** option (on
+  for forward/both, off for reverse); returning to Multi now restores the choice
+  you had made instead of leaving single mode's forced value behind — so a note
+  can no longer be saved as typed when you meant reveal, or vice-versa.
+- Saving a card now disables **Save** until the save finishes, so an impatient
+  second click can no longer add a duplicate note. If a save fails, the error is
+  shown and you can try again.
+- Editing the **same** note from the Browser can no longer open two edit dialogs
+  at once, which previously let the second save silently overwrite the first.
+- **Reverse** ("locate the structure") cards no longer reveal the answer on the
+  question side: with decoy dots turned off, the single target dot is now hidden
+  until you flip to the answer.
+- Editing an older note no longer silently turns its **context labels** off. A
+  note saved before per-note context labels existed now keeps rendering the way
+  it did (following your global setting) after an edit.
+- A corrupt or absurd `max_placement_attempts` value in `config.json` can no
+  longer freeze the reviewer; it is capped to a safe range.
+
+### Changed
+- The packaged `.ankiaddon` is now byte-reproducible: building the same source
+  twice produces an identical file, so a release artifact can be verified.
+
 ## [1.1.0]
 
 ### Added
@@ -67,5 +93,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add-on required on the device, since the renderer is baked into the card.
 - Configurable colours, minimum arrow length, and default study mode.
 
+[1.1.1]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.0.0
