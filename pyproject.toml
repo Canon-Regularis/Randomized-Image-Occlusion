@@ -1,6 +1,6 @@
 [project]
 name = "randomized-image-occlusion"
-version = "1.1.0"
+version = "1.1.1"
 description = "Anki add-on: image occlusion that randomises label placement each review."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -1,75 +1,96 @@
 name: CI
 
+# Verify every push to main and every pull request; also runnable on demand.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
+# A newer commit on the same branch/PR cancels the in-flight run — no wasted minutes.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: nothing here needs write access to the repo.
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Lint, type-check & test (py${{ matrix.python-version }})
+  # Lint, type-check, and the Python suite on the MINIMUM supported interpreter.
+  # These gates are version-agnostic, so ruff/mypy run here exactly once; the
+  # `pytest` job below adds cross-version runtime coverage without repeating them.
+  check:
+    name: lint · types · tests (py3.10)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install dev tooling
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff (lint + import order)
+        run: ruff check --output-format=github .
+      - name: Mypy (static types)
+        run: mypy
+      - name: Pytest
+        run: python -m pytest -q
+
+  # Cross-version safety net: the Python suite on the other supported interpreters
+  # (lint/types are version-agnostic and already covered by `check`, so skipped).
+  pytest:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: pyproject.toml
+      - run: python -m pip install pytest
+      - run: python -m pytest -q
 
-      - name: Install dev dependencies
-        run: pip install -e ".[dev]"
-
-      - name: Ruff (lint + import order)
-        run: ruff check .
-
-      - name: Mypy (type-check)
-        run: mypy
-
-      - name: Pytest
-        run: pytest -q
-
+  # The reviewer renderer is inlined JS; its determinism/geometry invariants are
+  # tested with Node's built-in runner — no npm dependencies to install.
   js:
-    name: JavaScript tests (renderer)
+    name: js renderer tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - run: node --test tests/js/*.test.js
 
-      - name: Run the reviewer JS tests
-        run: node --test tests/js/*.test.js
-
+  # Only after every check is green: package the .ankiaddon and publish it as a
+  # build artifact, so a reviewer can install the exact reviewed build from any PR.
   build:
-    name: Build .ankiaddon
+    name: build .ankiaddon
+    needs: [check, pytest, js]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - name: Build the distributable add-on
+          python-version: "3.10"
+      - name: Build the add-on (stdlib only)
         run: python build.py
-
-      - name: Upload the .ankiaddon artifact
+      - name: Upload the .ankiaddon
         uses: actions/upload-artifact@v4
         with:
           name: randomized_occlusion-ankiaddon
           path: dist/randomized_occlusion.ankiaddon
           if-no-files-found: error
+          retention-days: 30

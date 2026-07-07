@@ -7,6 +7,7 @@ __pycache__/
 
 # Build output
 dist/
+*.egg-info/
 
 # Anki-generated, per-install add-on state (must never be committed/shipped)
 meta.json
