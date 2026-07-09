@@ -75,9 +75,6 @@ class BrowserEditIntegration:
         return note_ids[0]
 
     def _open(self, note_id: int) -> None:
-        if self._host.is_showing():
-            return  # one edit dialog at a time — a second open would drop the
-            # host's only strong ref to the first and let two dialogs race Save
         col = self._mw.col
         if col is None:
             return
@@ -96,10 +93,13 @@ class BrowserEditIntegration:
                 "hand-edited."
             )
             return
-        dialog = MarkerDialog(
-            self._mw,
-            self._config,
-            saver=UpdateNoteSaver(self._config, int(note_id), self._spec),
-            prefill=loaded,
+        # The host opens at most one dialog; without that, editing the same note
+        # twice would let the second Save silently overwrite the first.
+        self._host.present(
+            lambda: MarkerDialog(
+                self._mw,
+                self._config,
+                saver=UpdateNoteSaver(self._config, int(note_id), self._spec),
+                prefill=loaded,
+            )
         )
-        self._host.present(dialog)

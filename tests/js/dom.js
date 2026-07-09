@@ -14,20 +14,8 @@
 // pre-populate session storage and call `render(false)` instead — the renderer
 // then reuses that seed, so every layout/direction decision is reproducible.
 
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
+const { runRenderJs } = require("./loader.js");
 
-const RENDER_JS = path.join(
-  __dirname,
-  "..",
-  "..",
-  "src",
-  "randomized_occlusion",
-  "web",
-  "review",
-  "render.js",
-);
 const SEED_KEY = "randomizedOcclusion.seed";
 
 /** Base64 of compact JSON — the wire format the card embeds. */
@@ -256,9 +244,7 @@ function buildCard(opts) {
   };
 
   const sandbox = { window, document, atob, TextDecoder, Uint8Array, setTimeout: noop, console };
-  vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(RENDER_JS, "utf8"), sandbox, { filename: "render.js" });
-  const api = sandbox.window.RandomizedOcclusion;
+  const api = runRenderJs(sandbox);
 
   return {
     svg,

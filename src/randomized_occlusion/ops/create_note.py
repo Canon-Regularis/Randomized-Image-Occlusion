@@ -13,13 +13,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..collection.gateways import AnkiMediaGateway
-from ..collection.note_factory import NoteFactory
 from ..config.render_config import RenderConfig
 from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
-from ..notetype.factory import build_installer
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
-from .runner import commit_with_undo, run_note_op
+from .runner import commit_with_undo, prepare_content, run_note_op
 
 __all__ = ["NoteRequest", "add_randomized_occlusion_note"]
 
@@ -50,24 +48,20 @@ def add_randomized_occlusion_note(
     """Run the note-creation ``CollectionOp`` in the background."""
 
     def op(col: Any) -> Any:
-        # Everything that can fail on external state — importing the image (the
-        # chosen file may have gone away) — happens BEFORE the custom undo entry
-        # is opened, so a failure can't leave a half-open entry that corrupts
-        # Anki's undo queue. Only the note write is wrapped by the entry.
-        #
-        # ensure_installed also runs first: add_dict/update_dict perform a schema
-        # change that clears the undo queue, so it must precede the entry too. In
-        # normal use it's a no-op (bootstrap installs the note type at profile
-        # open).
-        build_installer(col, spec).ensure_installed(render_config)
-        filename = AnkiMediaGateway(col).add_image(request.image_path)
-        content = NoteFactory(spec).build(
-            image_filename=filename,
+        # prepare_content installs the note type and imports the chosen image —
+        # the fallible work that must precede the undo entry (see its docstring).
+        content = prepare_content(
+            col,
+            spec=spec,
+            render_config=render_config,
+            resolve_image=lambda c: AnkiMediaGateway(c).add_image(request.image_path),
             structures=request.structures,
             options=request.options,
             header=request.header,
             back_extra=request.back_extra,
         )
+        # Resolving the note type and the deck can fail too, so they also stay
+        # outside the entry; only the note write is wrapped by it.
         notetype = col.models.by_name(content.notetype_name)
         note = col.new_note(notetype)
         for name, value in content.fields.items():

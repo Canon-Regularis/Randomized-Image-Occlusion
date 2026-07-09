@@ -22,14 +22,17 @@ class EditorLauncher:
     def open(self, *_args: Any) -> None:
         # *_args absorbs the bool QAction.triggered emits, so this works whether
         # or not PyQt truncates the signal's argument.
-        if self._host.is_showing():
-            return  # one editor dialog at a time (the Add-window button shares it)
         if self._mw.col is None:
             showInfo("Please open a collection first.")
             return
         try:
-            dialog = MarkerDialog(
-                self._mw, self._config, saver=CreateNoteSaver(self._config)
+            # The host builds the dialog only when none is open, so the Tools menu
+            # and the Add-window button — which share this launcher — can never
+            # stack two editors.
+            self._host.present(
+                lambda: MarkerDialog(
+                    self._mw, self._config, saver=CreateNoteSaver(self._config)
+                )
             )
         except Exception:
             # Surface the failure instead of silently doing nothing.
@@ -37,5 +40,3 @@ class EditorLauncher:
                 "Randomized Image Occlusion could not open the editor:\n\n"
                 + traceback.format_exc()
             )
-            return
-        self._host.present(dialog)

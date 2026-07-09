@@ -330,6 +330,11 @@
     );
   }
 
+  /** Dot every structure — no single dot can then give a location away. */
+  function drawDots(svg, targets) {
+    for (var i = 0; i < targets.length; i++) drawDot(svg, targets[i]);
+  }
+
   /**
    * Greedily wrap `text` into lines each no wider than `maxW`, using `measure`
    * to size candidates. A single word wider than maxW stays on its own line (a
@@ -672,7 +677,7 @@
       if (!stage) return;
       var layout = computeSingleLayout(seed, stage, structures, cfg);
 
-      for (var d = 0; d < layout.targets.length; d++) drawDot(svg, layout.targets[d]);
+      drawDots(svg, layout.targets);
 
       // Already-answered structures stay revealed (accumulating answer key).
       for (var p = 0; p < state.idx && p < n; p++) {
@@ -803,7 +808,7 @@
       var stage = fitSvg(svg, img);
       if (!stage) return;
       var layout = computeSingleLayout(seed, stage, structures, cfg);
-      for (var d = 0; d < layout.targets.length; d++) drawDot(svg, layout.targets[d]);
+      drawDots(svg, layout.targets);
       for (var b = 0; b < layout.targets.length; b++) {
         drawBox(svg, layout.centers[b], layout.targets[b], layout.targets[b].label, cfg, true);
       }
@@ -958,7 +963,7 @@
 
     if (contextLabels) {
       var centers = placeCenters(rng, stage, targets, cfg);
-      for (var d = 0; d < targets.length; d++) drawDot(svg, targets[d]);
+      drawDots(svg, targets);
       for (var b = 0; b < targets.length; b++) {
         if (b === activeIndex) {
           drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow, undefined, targets[b].label);
@@ -970,7 +975,7 @@
       // Decoy dots (all markers) force the learner to follow the arrow to the
       // right one instead of recognising a lone dot.
       if (cfg.showDecoyDots) {
-        for (var e = 0; e < targets.length; e++) drawDot(svg, targets[e]);
+        drawDots(svg, targets);
       } else if (targetDotVisible(cfg, isReverse, back)) {
         drawDot(svg, active);
       }

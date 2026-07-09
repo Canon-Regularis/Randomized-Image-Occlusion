@@ -4,21 +4,12 @@
 // into a headless `vm` sandbox with just enough DOM fakes that its top-level
 // IIFE runs without a browser, then hands back the pure helper functions it
 // exposes on `window.RandomizedOcclusion._internals`.
+//
+// The DOM here is deliberately minimal: `getElementById` returns null, so
+// `render()` bails immediately and only the pure geometry/decoding helpers can
+// be exercised. Tests that need the renderer to actually draw use `dom.js`.
 
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
-
-const RENDER_JS = path.join(
-  __dirname,
-  "..",
-  "..",
-  "src",
-  "randomized_occlusion",
-  "web",
-  "review",
-  "render.js",
-);
+const { runRenderJs } = require("./loader.js");
 
 function stubNode() {
   return {
@@ -37,7 +28,6 @@ function stubNode() {
 }
 
 function loadInternals() {
-  const code = fs.readFileSync(RENDER_JS, "utf8");
   const noop = () => {};
   const store = {};
   const windowObj = {
@@ -66,13 +56,11 @@ function loadInternals() {
     setTimeout: noop,
     console,
   };
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, { filename: "render.js" });
-  const api = sandbox.window.RandomizedOcclusion;
-  if (!api || !api._internals) {
+  const api = runRenderJs(sandbox);
+  if (!api._internals) {
     throw new Error("render.js did not expose RandomizedOcclusion._internals");
   }
   return api._internals;
 }
 
-module.exports = { loadInternals, RENDER_JS };
+module.exports = { loadInternals };

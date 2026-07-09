@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const { RENDER_JS } = require("./harness.js");
+const { RENDER_JS } = require("./loader.js");
 
 const WEB_DIR = path.join(__dirname, "..", "..", "src", "randomized_occlusion", "web");
 const MARKER_JS = path.join(WEB_DIR, "editor", "marker.js");
