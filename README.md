@@ -84,7 +84,9 @@ review history. Your stats and FSRS stay exactly as they were.
 You can leave everything on its sensible defaults, or turn on:
 
 - **Type the answer** - type the structure's name and let Anki grade it, instead
-  of flipping to reveal.
+  of flipping to reveal. (Note: if a label contains `::`, `{{` or `}}` — e.g. a
+  C++/Rust name like `std::vector` — Anki's type grader compares against an
+  escaped form, so use *reveal* or *single-card* mode for those labels.)
 - **Reverse cards** - instead of *"what is this?"*, get *"where is the X?"* and
   find it. Or **both** directions per structure.
 - **Context labels** - show the surrounding labels while you answer, the way

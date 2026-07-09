@@ -116,6 +116,15 @@ class StructureSet:
         (``{{type:cloze:...}}``) can grade what the learner types, and labels are
         escaped so cloze syntax can't break the field.
 
+        KNOWN LIMITATION: the escaping (:func:`_cloze_escape`) is what Anki's
+        NATIVE type box grades against, so a label containing ``::``, ``{{`` or
+        ``}}`` (e.g. ``std::vector``) is graded in its escaped form (``std:vector``)
+        even though the learner sees the raw label — so typing the displayed answer
+        is marked wrong. This only affects *multi-mode type-to-answer*; the drawn
+        prompt and single-mode's own grader use the raw label. Cloze metacharacters
+        can't be un-escaped without breaking Anki's cloze parsing, so for labels
+        with ``::``/``{{``/``}}`` use reveal or single-card mode.
+
         Every mode emits exactly one card per structure. In single mode that one
         card cycles through all structures (the cloze answer is inert). In multi
         mode the card's direction — forward, reverse, or, for ``Direction.BOTH``,
