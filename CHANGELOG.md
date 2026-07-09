@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   front and back of a card could disagree on the randomised layout (so the arrow
   and answer wouldn't match the question). The layout seed now stays consistent
   even in that degraded state.
+- A long structure label (e.g. a full anatomical name) no longer runs its prompt
+  box off the edge of the image or phone screen with the text clipped: long
+  labels now wrap onto multiple lines and the box is kept on-screen, while the
+  front and back still line up.
 
 ### Changed
 - The packaged `.ankiaddon` is now byte-reproducible: building the same source
