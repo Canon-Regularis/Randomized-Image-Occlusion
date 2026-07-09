@@ -26,10 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it did (following your global setting) after an edit.
 - A corrupt or absurd `max_placement_attempts` value in `config.json` can no
   longer freeze the reviewer; it is capped to a safe range.
+- A structure label containing doubled cloze markers (e.g. `{{{{…::::…}}}}`) no
+  longer slips a live cloze into the card, which could make Anki generate an
+  extra phantom card with no matching structure; such labels are now fully
+  neutralised.
 
 ### Changed
 - The packaged `.ankiaddon` is now byte-reproducible: building the same source
   twice produces an identical file, so a release artifact can be verified.
+- Saving your deck choice now persists only that change rather than a full copy
+  of the current defaults, so later improvements to a default setting still
+  reach you for options you never customised.
 
 ## [1.1.0]
 

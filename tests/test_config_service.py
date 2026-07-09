@@ -39,6 +39,15 @@ def test_set_deck_persists_and_preserves_other_keys():
     assert service.load()["accent_color"] == "#000000"
 
 
+def test_set_deck_persists_only_the_delta_not_frozen_defaults():
+    # set_deck must store only the changed keys, so keys the user never set keep
+    # tracking DEFAULT_CONFIG. If it wrote the full merged config, a later change
+    # to a default would never reach the user (their frozen copy would win).
+    provider = InMemoryConfigProvider()
+    ConfigService(provider).set_deck("Biology")
+    assert provider.get() == {"deck": "Biology"}  # only the delta was persisted
+
+
 def test_render_config_is_built_from_effective_config():
     service = ConfigService(InMemoryConfigProvider({"min_arrow_fraction": 0.4}))
     assert service.render_config().min_arrow_fraction == 0.4

@@ -80,6 +80,22 @@ def test_label_of_only_cloze_metacharacters_is_neutralised_in_cloze() -> None:
     assert answer.strip()  # never collapses to an empty cloze answer
 
 
+@pytest.mark.parametrize(
+    "label",
+    ["{{{{c2::::x}}}}", "{{{{{{c9::::hi}}}}}}", "a{{{{c3::::b}}}}c"],
+)
+def test_doubled_cloze_metacharacters_cannot_inject_a_phantom_ordinal(label: str) -> None:
+    # A one-shot escape would collapse `{{{{` back into a live `{{`, letting a
+    # crafted label smuggle an extra `{{cN::...}}` into the Ordinals field so Anki
+    # generates a phantom card for a structure that doesn't exist. The escape must
+    # neutralise doubled metacharacters too — this note has exactly one structure,
+    # so exactly one cloze ordinal may appear.
+    field = _one(label).cloze_field(CardOptions(direction=Direction.FORWARD))
+    assert re.findall(r"\{\{c(\d+)::", field) == ["1"]
+    answer = re.findall(r"\{\{c\d+::(.*?)\}\}", field, flags=re.DOTALL)[0]
+    assert "{{" not in answer and "}}" not in answer and "::" not in answer
+
+
 # ---- coordinate boundaries ---------------------------------------------------
 
 

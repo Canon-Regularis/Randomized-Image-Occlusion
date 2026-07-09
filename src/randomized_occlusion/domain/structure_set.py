@@ -14,8 +14,23 @@ __all__ = ["StructureSet"]
 
 
 def _cloze_escape(label: str) -> str:
-    """Neutralise cloze metacharacters so a label is safe as a cloze answer."""
-    return label.replace("{{", "{").replace("}}", "}").replace("::", ":")
+    """Neutralise cloze metacharacters so a label is safe as a cloze answer.
+
+    Collapse to a fixpoint, not in a single pass: a one-shot replace turns
+    ``{{{{`` into ``{{`` — reconstituting a live cloze opener — so a crafted
+    label like ``{{{{c2::::x}}}}`` would slip a valid ``{{c2::…}}`` into the
+    Ordinals field and make Anki generate a *phantom* card 2 for a note that has
+    only one structure (an ordinal with no matching structure). Looping until the
+    string stops changing guarantees no ``{{``, ``}}`` or ``::`` survives. Each
+    pass only shortens the string, so this always terminates. (The visible answer
+    comes from the base64 ``Structures`` payload, so a stronger escape here never
+    changes what the learner sees.)
+    """
+    previous = ""
+    while previous != label:
+        previous = label
+        label = label.replace("{{", "{").replace("}}", "}").replace("::", ":")
+    return label
 
 
 @dataclass(frozen=True, slots=True)

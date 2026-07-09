@@ -81,6 +81,12 @@ class ConfigService:
         return str(self.load().get("deck", DEFAULT_CONFIG["deck"]))
 
     def set_deck(self, deck_name: str) -> None:
-        config = self.load()
+        # Persist only the stored values plus the deck — NOT the full merged
+        # config. Writing the merge would bake today's DEFAULT_CONFIG values into
+        # the user's saved config, so a later change to a default would never
+        # reach them for keys they never set. load() re-merges over defaults, so
+        # untouched keys keep tracking the defaults.
+        stored = self._provider.get()
+        config = dict(stored) if stored else {}
         config["deck"] = deck_name
         self._provider.write(config)
