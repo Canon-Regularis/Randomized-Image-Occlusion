@@ -251,6 +251,34 @@ test("resolveActiveCard clamps out-of-range ordinals to the first structure", ()
   assert.deepEqual(active(5, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
 });
 
+// ---- label wrapping: keep a long label's box within the stage --------------
+
+// render.js runs in a vm realm, so spread its returned arrays into plain ones
+// before strict deep-equal (cross-realm prototypes otherwise differ).
+const wrap = (t, w, m) => [...I.wrapToWidth(t, w, m)];
+
+test("wrapToWidth packs words greedily within the max width", () => {
+  // measure = character count; wrap "a bb ccc dddd" to width 6
+  const measure = (s) => s.length;
+  assert.deepEqual(wrap("a bb ccc dddd", 6, measure), ["a bb", "ccc", "dddd"]);
+  // a short label stays on one line
+  assert.deepEqual(wrap("Aorta", 100, measure), ["Aorta"]);
+  // every line fits within the max width (except an unbreakable single word)
+  const long = "inferior mesenteric artery and its sigmoid branches";
+  const lines = wrap(long, 20, measure);
+  assert.ok(lines.length > 1, "long label wraps to multiple lines");
+  for (const line of lines) {
+    if (line.indexOf(" ") >= 0) assert.ok(line.length <= 20, `line within width: ${line}`);
+  }
+  // no words lost or reordered
+  assert.equal(lines.join(" "), long);
+});
+
+test("wrapToWidth keeps a single over-long word on its own line", () => {
+  const measure = (s) => s.length;
+  assert.deepEqual(wrap("supercalifragilistic", 5, measure), ["supercalifragilistic"]);
+});
+
 // ---- lone target dot must not leak a reverse card's answer ------------------
 
 test("targetDotVisible hides the lone dot only on a reverse question side", () => {

@@ -331,11 +331,52 @@
   }
 
   /**
-   * Draw a labelled box centred at `center` with a leader-line arrow to `target`.
-   * Placement is decided by the caller (so front and back agree); this only
-   * measures the text, sizes the box symmetrically around the centre, and draws.
+   * Greedily wrap `text` into lines each no wider than `maxW`, using `measure`
+   * to size candidates. A single word wider than maxW stays on its own line (a
+   * word can't be broken without hyphenation). Always returns at least one line.
    */
-  function drawBox(svg, center, target, text, cfg, showArrow, extraClass) {
+  function wrapToWidth(text, maxW, measure) {
+    var words = String(text).split(/\s+/);
+    var lines = [];
+    var cur = "";
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (!w) continue;
+      var trial = cur ? cur + " " + w : w;
+      if (cur && measure(trial) > maxW) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = trial;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [String(text)];
+  }
+
+  /** Wrap `label`-text to `maxW` and return its box size {w, h, lines[]}. */
+  function sizeBox(str, maxW, lineHeight, measure) {
+    var lines = measure(str) <= maxW ? [str] : wrapToWidth(str, maxW, measure);
+    var widest = 0;
+    for (var i = 0; i < lines.length; i++) widest = Math.max(widest, measure(lines[i]));
+    return {
+      lines: lines,
+      w: Math.max(BOX_MIN_WIDTH, widest + BOX_PADDING_X * 2),
+      h: Math.max(BOX_MIN_HEIGHT, lines.length * lineHeight + BOX_PADDING_Y * 2),
+    };
+  }
+
+  /**
+   * Draw a labelled box near `center` with a leader-line arrow to `target`.
+   * Placement is decided by the caller (so front and back agree). Two things keep
+   * a long label on-screen without breaking that front/back agreement:
+   *   - a label wider than ~90% of the stage is WRAPPED onto multiple lines, so
+   *     the box grows in HEIGHT (not width) around its centre; and
+   *   - the centre is nudged inward so the box stays within the stage — sized by
+   *     `clampText` (the full LABEL), not the shown `text`, so the front "?" box
+   *     and the back label box resolve to the SAME centre and still line up.
+   */
+  function drawBox(svg, center, target, text, cfg, showArrow, extraClass, clampText) {
     var group = svgEl("g", { class: "ro-box" });
     var rectClass = extraClass ? "ro-box-rect " + extraClass : "ro-box-rect";
     var rect = svgEl("rect", { class: rectClass, rx: "8", ry: "8" });
@@ -344,31 +385,56 @@
       "text-anchor": "middle",
       "dominant-baseline": "central",
     });
-    label.textContent = text;
     group.appendChild(rect);
     group.appendChild(label);
     svg.appendChild(group);
 
-    var textLen;
-    try {
-      textLen = label.getComputedTextLength();
-    } catch (e) {
-      textLen = String(text).length * 9;
-    }
     var fontSize = parseFloat(window.getComputedStyle(label).fontSize) || 18;
-    var box = {
-      w: Math.max(BOX_MIN_WIDTH, textLen + BOX_PADDING_X * 2),
-      h: Math.max(BOX_MIN_HEIGHT, fontSize + BOX_PADDING_Y * 2),
-    };
-    box.x = center.x - box.w / 2;
-    box.y = center.y - box.h / 2;
+    var lineHeight = fontSize * 1.25;
+    // Measure by writing plain text into the (childless) label and reading its
+    // computed length; the label is cleared before its final <tspan>s are built.
+    function measure(s) {
+      label.textContent = s;
+      try {
+        return label.getComputedTextLength();
+      } catch (e) {
+        return String(s).length * fontSize * 0.6;
+      }
+    }
+
+    // The svg's width/height are the displayed image size (setSvgSize / fitSvg).
+    var stageW = parseFloat(svg.getAttribute("width")) || 0;
+    var stageH = parseFloat(svg.getAttribute("height")) || 0;
+    var maxTextW =
+      stageW > 0 ? Math.max(BOX_MIN_WIDTH, stageW * 0.9 - BOX_PADDING_X * 2) : Infinity;
+
+    // Nudge the centre inward using the LABEL's box (so front/back match), then
+    // size the box for the actually-shown text at that clamped centre.
+    var clampBox = sizeBox(String(clampText != null ? clampText : text), maxTextW, lineHeight, measure);
+    var cx = center.x;
+    var cy = center.y;
+    if (stageW > 0) cx = clampBox.w >= stageW ? stageW / 2 : clamp(center.x, clampBox.w / 2, stageW - clampBox.w / 2);
+    if (stageH > 0) cy = clampBox.h >= stageH ? stageH / 2 : clamp(center.y, clampBox.h / 2, stageH - clampBox.h / 2);
+
+    var box = sizeBox(String(text), maxTextW, lineHeight, measure);
+    box.x = cx - box.w / 2;
+    box.y = cy - box.h / 2;
 
     rect.setAttribute("x", box.x);
     rect.setAttribute("y", box.y);
     rect.setAttribute("width", box.w);
     rect.setAttribute("height", box.h);
-    label.setAttribute("x", center.x);
-    label.setAttribute("y", center.y);
+
+    // One <tspan> per line, centred horizontally on the box; the block is centred
+    // vertically around the clamped centre. A single line reproduces the previous
+    // centred text exactly (tspan at the centre with the inherited central baseline).
+    label.textContent = "";
+    var firstY = cy - ((box.lines.length - 1) * lineHeight) / 2;
+    for (var j = 0; j < box.lines.length; j++) {
+      var tspan = svgEl("tspan", { x: cx, y: firstY + j * lineHeight });
+      tspan.textContent = box.lines[j];
+      label.appendChild(tspan);
+    }
 
     if (showArrow) {
       var start = boxBorderToward(box, target);
@@ -621,7 +687,7 @@
         if (state.revealed) {
           drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, boxClass(state.results[state.idx]));
         } else if (currentForward()) {
-          drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true);
+          drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true, undefined, layout.targets[ci].label);
         } else {
           drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false);
         }
@@ -895,7 +961,7 @@
       for (var d = 0; d < targets.length; d++) drawDot(svg, targets[d]);
       for (var b = 0; b < targets.length; b++) {
         if (b === activeIndex) {
-          drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow);
+          drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow, undefined, targets[b].label);
         } else {
           drawBox(svg, centers[b], targets[b], targets[b].label, cfg, true);
         }
@@ -909,7 +975,7 @@
         drawDot(svg, active);
       }
       var center = placeCenter(rng, stage, active, cfg);
-      drawBox(svg, center, active, activeText, cfg, activeArrow);
+      drawBox(svg, center, active, activeText, cfg, activeArrow, undefined, active.label);
     }
 
     // Type-to-answer doesn't apply to reverse ("locate") cards — hide the box.
@@ -983,6 +1049,7 @@
     normalizeAnswer: normalizeAnswer,
     resolveActiveCard: resolveActiveCard,
     targetDotVisible: targetDotVisible,
+    wrapToWidth: wrapToWidth,
     directionCoin: directionCoin,
     cyclerDirections: cyclerDirections,
     computeSingleLayout: computeSingleLayout,
