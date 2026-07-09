@@ -133,6 +133,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add-on required on the device, since the renderer is baked into the card.
 - Configurable colours, minimum arrow length, and default study mode.
 
-[1.1.1]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.1.1
-[1.1.0]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.1.0
-[1.0.0]: https://github.com/Canon-Regularis/Genius-Ezra-Idea-trillionaire-potential/releases/tag/v1.0.0
+[1.1.1]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.1
+[1.1.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.0
+[1.0.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.0.0
