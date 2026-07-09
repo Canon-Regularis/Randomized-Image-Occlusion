@@ -56,6 +56,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Saving your deck choice now persists only that change rather than a full copy
   of the current defaults, so later improvements to a default setting still
   reach you for options you never customised.
+- Documented a limitation of Anki's built-in **type the answer** grading in
+  multi-card mode: a label containing `::`, `{{` or `}}` (e.g. `std::vector`) is
+  compared against an escaped copy of itself, so the correct answer is marked
+  wrong. Use *reveal* or single-card mode for such labels. (README, `config.md`.)
+- Documented that `show_target_dot`, `show_decoy_dots` and `show_context_labels`
+  shape **multi-card** mode only: a single card always dots every marker, because
+  a lone dot would give away a *locate it* marker's answer and the running answer
+  key needs them all.
+- The reviewer is now covered end-to-end by automated tests: the multi-card
+  renderer and the single-card cycler are driven against a headless DOM (prompt
+  text, arrow, dots, the type-answer box, front/back layout parity, typed grading
+  and the full cycle), alongside geometry checks for markers on an image's corners
+  and edges. A CI pipeline runs the lint, type, Python and JavaScript suites and
+  publishes the built add-on on every push and pull request.
 
 ## [1.1.0]
 
