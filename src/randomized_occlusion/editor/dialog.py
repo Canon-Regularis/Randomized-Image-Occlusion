@@ -92,6 +92,11 @@ class MarkerDialog(QDialog):
         # Held from the moment a Save is committed until the async persist op
         # resolves, so a second Save press can't queue a duplicate note.
         self._saving = False
+        # Set once the dialog has finished (Cancel / Escape / close). Cancel stays
+        # clickable during a save's async getMarkers round-trip, so a late
+        # callback must NOT act on a torn-down dialog (build a note the user
+        # cancelled, or read/accept C++-deleted widgets).
+        self._closed = False
         self._marker_count = len(prefill.structures) if prefill is not None else 0
         # An image to show once the webview signals it is ready. (data_url, markers).
         self._pending_display: tuple[str, list[dict[str, Any]] | None] | None = None
@@ -409,6 +414,12 @@ class MarkerDialog(QDialog):
             self._update_save_enabled()
 
     def _on_markers(self, markers: Any) -> None:
+        # The dialog may have been cancelled/closed while this async round-trip
+        # was in flight (Cancel and Escape stay live during the save freeze).
+        # Acting now would persist the note the user just cancelled and touch
+        # torn-down widgets, so bail before doing anything.
+        if self._closed:
+            return
         # Markers are now captured for the image that was shown when Save ran.
         if not self._has_image():  # image was cleared between Save and callback
             self._abort_save()
@@ -476,12 +487,19 @@ class MarkerDialog(QDialog):
     def finish_saved(self, message: str) -> None:
         """Called by a saver once persistence succeeds: notify and close."""
         self._saving = False
+        if self._closed:
+            # The user cancelled after the save op had already committed; the note
+            # exists, but the dialog is gone — don't accept()/touch dead widgets.
+            return
         tooltip(message)
         self.accept()
 
     def save_failed(self, message: str) -> None:
         """Called by a saver if persistence fails: release the save lock so the
         user can retry, and surface the error."""
+        self._saving = False
+        if self._closed:
+            return  # dialog already closed; nothing to re-enable or report
         self._abort_save()
         showWarning(message)
 
@@ -506,6 +524,10 @@ class MarkerDialog(QDialog):
             )
 
     def _on_finished(self, _result: int) -> None:
+        # Mark closed FIRST so any in-flight getMarkers callback that lands after
+        # this (Cancel/Escape during a save) bails instead of persisting the
+        # cancelled note or touching torn-down widgets.
+        self._closed = True
         # AnkiWebView should be torn down explicitly or Anki can leak/crash on
         # close. cleanup() exists on modern AnkiWebView; guard for safety across
         # versions so a missing method can't raise out of this close handler.

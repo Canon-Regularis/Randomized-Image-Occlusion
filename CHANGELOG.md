@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer slips a live cloze into the card, which could make Anki generate an
   extra phantom card with no matching structure; such labels are now fully
   neutralised.
+- Cancelling the editor (Cancel or Escape) in the brief moment while a card is
+  being saved no longer creates the card you just cancelled, and can no longer
+  crash by acting on the already-closed dialog.
+- A wildly out-of-range number in `config.json` (a huge value in a decimal field
+  such as the minimum arrow length) no longer breaks note-type installation and
+  card saving; it falls back to the default like other invalid config values.
 
 ### Changed
 - The packaged `.ankiaddon` is now byte-reproducible: building the same source

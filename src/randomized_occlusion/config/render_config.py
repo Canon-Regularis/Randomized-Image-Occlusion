@@ -37,7 +37,10 @@ _COLOR_RE = re.compile(
 def _as_float(value: Any, default: float, *, low: float, high: float) -> float:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: float(huge_int) — a hand-edited config can hold an integer
+        # literal too large to convert to a float; from_mapping must stay total
+        # (matches _as_int, which guards the same case).
         return default
     if not math.isfinite(number):
         return default

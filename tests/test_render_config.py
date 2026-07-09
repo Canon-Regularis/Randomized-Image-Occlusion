@@ -85,6 +85,16 @@ def test_non_finite_int_config_falls_back_instead_of_crashing():
         assert rc.max_placement_attempts == DEFAULT_CONFIG["max_placement_attempts"]
 
 
+def test_huge_int_in_a_float_field_falls_back_instead_of_crashing():
+    # A hand-edited config.json can hold an integer literal too large to convert
+    # to a float — json.loads parses it as a Python int and float(10**400) raises
+    # OverflowError. from_mapping must stay total (never raise), or note-type
+    # install and card saving would crash for that profile.
+    for bad in [10**400, 10**320, int("9" * 500)]:
+        rc = RenderConfig.from_mapping({"min_arrow_fraction": bad})
+        assert rc.min_arrow_fraction == DEFAULT_CONFIG["min_arrow_fraction"]
+
+
 def test_valid_colors_are_accepted():
     colors = ["#e53935", "#fff", "#11223344", "red", "rebeccapurple", "rgb(1, 2, 3)"]
     for color in colors:
