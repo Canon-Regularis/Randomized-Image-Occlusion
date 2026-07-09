@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A wildly out-of-range number in `config.json` (a huge value in a decimal field
   such as the minimum arrow length) no longer breaks note-type installation and
   card saving; it falls back to the default like other invalid config values.
+- Typing an accented answer (e.g. *café*, *Müller*, *Sjögren*) is now graded
+  correctly even when the stored label and what you type use different Unicode
+  forms (composed vs decomposed) — which can happen across platforms/keyboards.
+  The answer and label are normalised before comparison, so a visually identical
+  answer is no longer marked wrong.
+- On a device where the webview's session storage is full or unavailable, the
+  front and back of a card could disagree on the randomised layout (so the arrow
+  and answer wouldn't match the question). The layout seed now stays consistent
+  even in that degraded state.
 
 ### Changed
 - The packaged `.ankiaddon` is now byte-reproducible: building the same source

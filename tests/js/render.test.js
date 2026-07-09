@@ -64,6 +64,21 @@ test("normalizeAnswer trims, lowercases, and collapses whitespace", () => {
   assert.equal(I.normalizeAnswer(""), "");
 });
 
+test("normalizeAnswer treats NFC and NFD accented forms as equal", () => {
+  // A card author may store an accented term composed (NFC) while a reviewer on
+  // another platform types it decomposed (NFD); canonically-equivalent answers
+  // (common in anatomy/medical terms) must grade equal, not wrong.
+  for (const term of ["café", "naïve", "Müller", "Sjögren", "piña", "Bézier"]) {
+    assert.equal(
+      I.normalizeAnswer(term.normalize("NFC")),
+      I.normalizeAnswer(term.normalize("NFD")),
+      `NFC/NFD forms of ${term} should normalize equal`,
+    );
+  }
+  // still distinguishes genuinely different answers
+  assert.notEqual(I.normalizeAnswer("aorta"), I.normalizeAnswer("aorté"));
+});
+
 // ---- base64/UTF-8 payload decode --------------------------------------------
 
 test("decodeBase64Utf8 round-trips UTF-8 including non-ASCII", () => {

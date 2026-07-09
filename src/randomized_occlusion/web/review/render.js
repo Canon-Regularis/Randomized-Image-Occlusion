@@ -95,18 +95,28 @@
   }
 
   function readSeed() {
+    // Prefer sessionStorage, but fall back to the in-memory seed whenever
+    // sessionStorage lacks the value — whether getItem throws OR returns null. A
+    // quota-exhausted store makes setItem throw while getItem returns null, so
+    // reading only on the throw path would strand the fallback and let the back
+    // side mint a different seed (the answer wouldn't match the question).
     try {
-      return window.sessionStorage.getItem(SEED_KEY);
+      var stored = window.sessionStorage.getItem(SEED_KEY);
+      if (stored !== null) return stored;
     } catch (e) {
-      return window.__roSeedFallback || null;
+      /* fall through to the in-memory fallback */
     }
+    return window.__roSeedFallback || null;
   }
 
   function writeSeed(value) {
+    // Always keep the in-memory fallback in sync so a later read recovers the
+    // seed even if sessionStorage is unavailable or full; then best-effort persist.
+    window.__roSeedFallback = String(value);
     try {
       window.sessionStorage.setItem(SEED_KEY, String(value));
     } catch (e) {
-      window.__roSeedFallback = String(value);
+      /* the in-memory fallback above already holds the seed */
     }
   }
 
@@ -469,7 +479,12 @@
   }
 
   function normalizeAnswer(text) {
-    return (text || "").trim().toLowerCase().replace(/\s+/g, " ");
+    // NFC-normalise so a canonically-equivalent accented answer grades as
+    // correct: an author may store "café" composed (U+00E9) while a reviewer on
+    // another platform types it decomposed (e + U+0301). Without this they are
+    // different strings and a visually identical answer is marked wrong. Applied
+    // to both the typed answer and the label, so both collapse to the same form.
+    return (text || "").trim().toLowerCase().replace(/\s+/g, " ").normalize("NFC");
   }
 
   /**
