@@ -2,8 +2,8 @@
 
 // End-to-end tests of single-card mode: the interactive cycler. `render()` builds
 // a control bar (progress counter, answer input, Check/Reveal/Next button), and
-// these tests drive a whole review through it — typing answers, revealing,
-// advancing marker by marker to the "done" state — then check the answer key on
+// these tests drive a whole review through it (typing answers, revealing,
+// advancing marker by marker to the "done" state), then check the answer key on
 // the back. This is the state machine the pure-helper tests never exercise.
 //
 // The seed is pre-set and rendered with `mint=false`, so the cycle order and the

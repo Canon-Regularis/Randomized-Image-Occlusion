@@ -3,7 +3,7 @@
 // Geometry at the extremes a real image and its markers can actually reach:
 // structures marked exactly on a corner or an edge, images with awkward aspect
 // ratios, and many markers crowded into one corner. The prompt box must always
-// end up somewhere on the image with an arrow long enough to see — a box sitting
+// end up somewhere on the image with an arrow long enough to see; a box sitting
 // on top of its own target, or drifting off the picture, is a broken card.
 
 const test = require("node:test");
@@ -23,7 +23,7 @@ const CONFIGS = [
   { minArrowFraction: 0.22, maxPlacementAttempts: 48, name: "default" },
   { minArrowFraction: 0.5, maxPlacementAttempts: 48, name: "long-arrow" },
 ];
-// Corners, edge midpoints, and the centre — all reachable by clicking the canvas.
+// Corners, edge midpoints, and the centre, all reachable by clicking the canvas.
 const NORMALISED = [
   [0, 0],
   [1, 1],

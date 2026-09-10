@@ -284,13 +284,13 @@ test("wrapToWidth keeps a single over-long word on its own line", () => {
 test("targetDotVisible hides the lone dot only on a reverse question side", () => {
   const on = { showTargetDot: true };
   const off = { showTargetDot: false };
-  // Forward: dot marks where the arrow points — always fine.
+  // Forward: dot marks where the arrow points, always fine.
   assert.equal(I.targetDotVisible(on, false, false), true); // forward front
   assert.equal(I.targetDotVisible(on, false, true), true); // forward back
   // Reverse: the question side ("locate it") must NOT show the dot (it sits on
   // the answer location); the back reveals it alongside the arrow.
-  assert.equal(I.targetDotVisible(on, true, false), false); // reverse front — leak guarded
-  assert.equal(I.targetDotVisible(on, true, true), true); // reverse back — reveal
+  assert.equal(I.targetDotVisible(on, true, false), false); // reverse front, leak guarded
+  assert.equal(I.targetDotVisible(on, true, true), true); // reverse back, reveal
   // With the dot disabled entirely, it never shows regardless of side.
   assert.equal(I.targetDotVisible(off, true, false), false);
   assert.equal(I.targetDotVisible(off, false, false), false);
@@ -327,3 +327,53 @@ test("cyclerDirections is deterministic per seed and mixes for both", () => {
     "both mixes forward and backward across markers",
   );
 });
+
+// Golden values. The tests above pin `shuffleIndices` as a deterministic
+// permutation, which an identity function also satisfies; these pin what the
+// permutation actually is. They fail if the generator changes, which is correct:
+// that changes the layout of every existing card.
+
+test("shuffleIndices produces a known non-identity permutation", () => {
+  const identity = [0, 1, 2, 3, 4, 5];
+  for (const [seed, expected] of [
+    [20240607, [3, 5, 1, 2, 4, 0]],
+    [1, [4, 1, 5, 2, 0, 3]],
+    [7, [4, 1, 2, 3, 5, 0]],
+  ]) {
+    // Spread into this realm: the sandbox has its own Array.prototype, which
+    // deepEqual rejects however identical the contents.
+    const order = [...I.shuffleIndices(6, I.makeRng(seed))];
+    assert.deepEqual(order, expected, `seed ${seed}`);
+    assert.notDeepEqual(order, identity, `seed ${seed} left the order untouched`);
+  }
+});
+
+test("directionCoin is not constant across seeds", () => {
+  const seen = new Set();
+  for (let seed = 0; seed < 40; seed += 1) seen.add(I.directionCoin(seed));
+  assert.equal(seen.size, 2, "the coin must land both ways over 40 seeds");
+  assert.equal(I.directionCoin(20240607), false, "golden value");
+  assert.equal(I.directionCoin(1), true, "golden value");
+});
+
+test("cyclerDirections is not constant across seeds", () => {
+  const seen = new Set();
+  for (let seed = 0; seed < 40; seed += 1) {
+    seen.add(JSON.stringify(I.cyclerDirections(seed, 3, "both")));
+  }
+  assert.ok(seen.size > 1, `40 seeds gave ${seen.size} distinct assignment(s)`);
+});
+
+test("cyclerDirections draws from its own seed stream", () => {
+  // It XORs the seed before use so per-marker directions cannot correlate with
+  // box placement, which consumes the same seed. Golden values pin the offset;
+  // dropping it silently couples the two streams.
+  for (const [seed, expected] of [
+    [3, [false, true, false, false]],
+    [11, [true, false, false, false]],
+    [42, [false, false, false, false]],
+  ]) {
+    assert.deepEqual([...I.cyclerDirections(seed, 4, "both")], expected, `seed ${seed}`);
+  }
+});
+
