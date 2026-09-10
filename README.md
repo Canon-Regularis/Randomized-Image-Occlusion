@@ -1,6 +1,6 @@
 # Randomized Image Occlusion
 
-*Anki image occlusion — but you can't cheat.*
+*Anki image occlusion - but you can't cheat.*
 
 An Anki add-on for studying labelled diagrams: anatomy cross-sections, the
 brachial plexus, histology slides, bones, ECGs, etc.
@@ -84,8 +84,8 @@ review history. Your stats and FSRS stay exactly as they were.
 You can leave everything on its sensible defaults, or turn on:
 
 - **Type the answer** - type the structure's name and let Anki grade it, instead
-  of flipping to reveal. (Note: if a label contains `::`, `{{` or `}}` — e.g. a
-  C++/Rust name like `std::vector` — Anki's type grader compares against an
+  of flipping to reveal. (Note: if a label contains `::`, `{{` or `}}` - e.g. a
+  C++/Rust name like `std::vector` - Anki's type grader compares against an
   escaped form, so use *reveal* or *single-card* mode for those labels.)
 - **Reverse cards** - instead of *"what is this?"*, get *"where is the X?"* and
   find it. Or **both** directions per structure.
@@ -94,7 +94,7 @@ You can leave everything on its sensible defaults, or turn on:
 - **Single-card mode** - put a whole diagram on **one** card that cycles through
   every label in a fresh random order each review, with a running counter.
 
-Works in both light and dark mode, and on your phone (AnkiDroid / AnkiMobile) —
+Works in both light and dark mode, and on your phone (AnkiDroid / AnkiMobile) -
 the card carries everything it needs, so it renders even where the add-on isn't
 installed.
 
@@ -263,4 +263,4 @@ reviewer's placement/RNG logic headlessly (Node's built-in runner, no deps).
 
 ## License
 
-See [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).
