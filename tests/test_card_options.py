@@ -54,3 +54,9 @@ def test_from_config_reads_card_mode_key_and_coerces():
 def test_from_config_uses_defaults_for_missing_or_bad_values():
     opts = CardOptions.from_config({"direction": "nonsense"})
     assert opts == CardOptions()  # all defaults
+
+
+def test_coerce_ignores_surrounding_whitespace():
+    # Values arrive from a hand-editable config file.
+    assert Direction.coerce("  reverse  ", Direction.FORWARD) is Direction.REVERSE
+    assert CardMode.coerce("\tsingle\n", CardMode.MULTI) is CardMode.SINGLE

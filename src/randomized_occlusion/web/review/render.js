@@ -1,9 +1,9 @@
 /*
- * Randomized Image Occlusion — reviewer renderer.
+ * Randomized Image Occlusion: the reviewer renderer.
  *
  * This file is *embedded into the card template* at note-type install time (it
  * is NOT shipped as a media file), so synced cards render correctly on every
- * client — desktop, AnkiDroid, AnkiMobile — without the add-on installed.
+ * client (desktop, AnkiDroid, AnkiMobile) without the add-on installed.
  *
  * Responsibilities:
  *   1. Read the structures (base64 JSON) and config out of the DOM.
@@ -73,7 +73,7 @@
     return Math.floor(Math.random() * 0xffffffff) >>> 0;
   }
 
-  /** mulberry32 — tiny seeded PRNG returning floats in [0, 1). */
+  /** mulberry32: a tiny seeded PRNG returning floats in [0, 1). */
   function makeRng(seed) {
     var a = seed >>> 0;
     return function () {
@@ -95,11 +95,10 @@
   }
 
   function readSeed() {
-    // Prefer sessionStorage, but fall back to the in-memory seed whenever
-    // sessionStorage lacks the value — whether getItem throws OR returns null. A
-    // quota-exhausted store makes setItem throw while getItem returns null, so
-    // reading only on the throw path would strand the fallback and let the back
-    // side mint a different seed (the answer wouldn't match the question).
+    // Prefer sessionStorage; fall back to the in-memory seed on both failure
+    // modes. getItem may throw (storage disabled) or return null (setItem
+    // failed on quota). Handling only the throw path would let the back side
+    // mint a different seed, so the answer would not match the question.
     try {
       var stored = window.sessionStorage.getItem(SEED_KEY);
       if (stored !== null) return stored;
@@ -127,7 +126,7 @@
     // values (prompt_text, colours) can never break out of the <script> element
     // or be mistaken for an Anki template field directive.
     // NOTE: this whole file is inlined into the card template, so it must never
-    // contain a double-brace field token — Anki would try to resolve it.
+    // contain a double-brace field token; Anki would try to resolve it.
     var el = document.getElementById("ro-config");
     var raw = el ? (el.textContent || "").trim() : "";
     var cfg = {};
@@ -217,11 +216,10 @@
   /**
    * Choose a randomised box CENTRE for this review.
    *
-   * Deliberately independent of the box's text/size: the front shows "?" and
-   * the back shows the (wider) label, so if placement depended on box width the
-   * same seed could accept a different position on each side and the box would
-   * jump on flip. Computing a size-independent centre means both sides derive
-   * the IDENTICAL point and the box simply grows symmetrically around it.
+   * Independent of the box's text and size. The front shows "?" and the back
+   * the wider label, so a width-dependent placement would give the two sides
+   * different centres for the same seed. Both sides derive the same centre and
+   * the box grows symmetrically around it.
    *
    * Centres are kept within a margin of the stage (a fraction of its size, so
    * this too is resolution-independent) to keep typical boxes on-image, and the
@@ -229,7 +227,7 @@
    */
   /**
    * The point inside the [marginX, maxX] x [marginY, maxY] rectangle FARTHEST
-   * from `target` — always a corner. Used as a deterministic fallback so the
+   * from `target`, always a corner. Used as a deterministic fallback so the
    * arrow is as long as the geometry allows (never near-zero) when random
    * sampling can't find a long-enough placement (small image / high minArrow).
    */
@@ -330,7 +328,7 @@
     );
   }
 
-  /** Dot every structure — no single dot can then give a location away. */
+  /** Dot every structure; no single dot can then give a location away. */
   function drawDots(svg, targets) {
     for (var i = 0; i < targets.length; i++) drawDot(svg, targets[i]);
   }
@@ -377,7 +375,7 @@
    * a long label on-screen without breaking that front/back agreement:
    *   - a label wider than ~90% of the stage is WRAPPED onto multiple lines, so
    *     the box grows in HEIGHT (not width) around its centre; and
-   *   - the centre is nudged inward so the box stays within the stage — sized by
+   *   - the centre is nudged inward so the box stays within the stage, sized by
    *     `clampText` (the full LABEL), not the shown `text`, so the front "?" box
    *     and the back label box resolve to the SAME centre and still line up.
    */
@@ -479,7 +477,7 @@
       var bestScore = -Infinity;
       // Candidates whose (clamped) arrow is too short to read are rejected
       // outright, so the arrow-visibility invariant is enforced by the loop
-      // itself — exactly as in placeCenter — and never traded for separation.
+      // itself, exactly as in placeCenter, and never traded for separation.
       // Among arrow-valid candidates, "score" is the smallest distance to any
       // already-placed centre or any *other* target; maximising it spreads the
       // boxes out.
@@ -603,7 +601,7 @@
    * Per-cycle-position forward/backward assignment for single mode (true =
    * forward). Only "both" mixes; a fixed direction applies uniformly. Drawn from
    * a SEPARATE seed stream so it never disturbs the cycle order or placement.
-   * Pure — exposed on _internals for testing.
+   * Pure, and exposed on _internals for testing.
    */
   function cyclerDirections(seed, n, direction) {
     var dirs = [];
@@ -830,7 +828,7 @@
     // layout even if a resize on the mint=false path re-minted a different seed.
     writeSeed(bar.__roController.seed);
     bar.__roController.paint();
-    // Auto-focus only on genuine (re)creation — never on a resize repaint, which
+    // Auto-focus only on genuine (re)creation; never on a resize repaint, which
     // would steal focus and re-pop the mobile keyboard mid-review. next() handles
     // focusing when the learner deliberately advances.
     if (created) bar.__roController.focus();
@@ -862,8 +860,8 @@
    * Whether to draw the lone target dot (the decoy-dots-off case). It marks
    * where a forward card's arrow points, and marks the answer on a reverse
    * card's back. But on a reverse QUESTION side (locate the named structure) the
-   * dot would sit on the exact spot the learner must recall, revealing the
-   * answer, so it is suppressed there. Pure — exposed on _internals for testing.
+   * dot would sit on the spot the learner must recall, so it is suppressed
+   * there. Pure; exposed on _internals for testing.
    */
   function targetDotVisible(cfg, isReverse, back) {
     return !!cfg.showTargetDot && !(isReverse && !back);
@@ -895,7 +893,7 @@
     //   - a fresh question view (mint=true, front) mints and stores a new seed;
     //   - the answer side (back) and any re-layout (resize, mint=false) reuse
     //     the stored seed, so they reproduce the exact same layout.
-    // Minting only on a genuine new question view — not on every render — is
+    // Minting only on a genuine new question view, not on every render, is
     // what stops the box jumping on resize or on a double initial render.
     var seed;
     if (back) {
@@ -983,7 +981,7 @@
       drawBox(svg, center, active, activeText, cfg, activeArrow, undefined, active.label);
     }
 
-    // Type-to-answer doesn't apply to reverse ("locate") cards — hide the box.
+    // Type-to-answer doesn't apply to reverse ("locate") cards; hide the box.
     var typeEl = document.querySelector(".ro-type");
     if (typeEl) typeEl.style.display = isReverse ? "none" : "";
   }
@@ -994,7 +992,7 @@
     var img = getImage();
     if (!img) {
       // DOM/image may not be ready yet (parse-mode clients); retry a bounded
-      // number of times, then give up — a note with an empty Image field must
+      // number of times, then give up; a note with an empty Image field must
       // not spin setTimeout forever and peg the CPU.
       if (attempt < 30) {
         window.setTimeout(function () {

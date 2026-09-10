@@ -171,7 +171,7 @@ __RO_VARIABLES__
 
 # The card's front/back HTML. Written with LITERAL Anki directives ({{#Header}},
 # {{cloze:Ordinals}}, ...) and __RO_*__ sentinels for the note type's field names,
-# then assembled by simple .replace() — the same idiom _CARD_CSS uses for its
+# then assembled by simple .replace(), the same idiom _CARD_CSS uses for its
 # colour variables, and far more legible than brace-doubling the directives
 # through str.format. (Literal {{ here is fine: this file *produces* the card
 # template; unlike render.js it is never inlined into a card and scanned by Anki.)
@@ -225,7 +225,7 @@ class TemplateAssembler:
         s = self._spec
         # The cloze note-type validator requires a literal {{cloze:...}} on BOTH
         # sides. The front already has one; the back reaches it only through
-        # {{FrontSide}}, which the validator doesn't follow — so we add a hidden
+        # {{FrontSide}}, which the validator doesn't follow, so we add a hidden
         # one here. It doubles as the back-side sentinel (#ro-answer) the JS
         # looks for. The renderer reads the active ordinal from the FrontSide
         # copy inside #ro-ordinal, so this extra hidden cloze is inert.
@@ -266,7 +266,7 @@ class TemplateAssembler:
 
         Hashes the *actual* assembled front, back, and CSS body (which already
         embed the renderer JS, the config, and the colour variables), so any
-        change — including to the HTML/CSS skeleton — is detected automatically
+        change, including to the HTML/CSS skeleton, is detected automatically
         and the installer refreshes already-installed note types. The CSS body
         is hashed *without* its own fingerprint comment to avoid self-reference.
         """

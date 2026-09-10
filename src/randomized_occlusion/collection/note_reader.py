@@ -52,7 +52,7 @@ class _ImgSrcExtractor(HTMLParser):
 
     ``HTMLParser`` resolves character references in attribute values, so an
     escaped filename (``&quot;``/``&amp;`` as written by the factory) comes back
-    already unescaped — the exact basename stored in the media store.
+    already unescaped: the exact basename stored in the media store.
     """
 
     def __init__(self) -> None:
@@ -72,7 +72,7 @@ def _extract_image_filename(image_field: str) -> str:
     """The media basename referenced by an ``Image`` field, or ``""`` if none.
 
     A missing/odd image is non-fatal for editing: the user can simply load a new
-    one, so this never raises — it returns an empty string the dialog treats as
+    one, so this never raises; it returns an empty string the dialog treats as
     "no current image".
     """
     parser = _ImgSrcExtractor()
@@ -97,14 +97,14 @@ class NoteReader:
         # A payload predating the contextLabels key (a v1 array, or a v2 note from
         # before per-note context labels) has no stored value. render.js falls
         # back to the global config for such notes, so mirror that here via the
-        # caller-supplied default — otherwise editing + saving would bake in a
+        # caller-supplied default; otherwise editing + saving would bake in a
         # literal False and silently suppress the labels the note currently shows.
         if context_labels is None:
             context_labels = context_labels_default
         # The interaction (type vs reveal) is carried in the payload for every
         # note. Notes that predate that key fall back to the TypeAnswer field
         # (which only multi mode sets); a legacy SINGLE note has neither, so
-        # default it to "type" to match how render.js renders such notes — that
+        # default it to "type" to match how render.js renders such notes; that
         # keeps a plain edit + save from silently flipping it to reveal.
         if payload_interaction is not None:
             interaction = payload_interaction

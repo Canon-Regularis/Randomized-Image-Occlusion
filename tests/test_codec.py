@@ -24,7 +24,7 @@ def test_output_is_ascii_and_carries_no_injection_characters():
 
 def test_json_is_compact_with_no_incidental_whitespace():
     raw = base64.b64decode(encode_json_b64({"a": 1, "b": 2}).encode("ascii")).decode("utf-8")
-    assert raw == '{"a":1,"b":2}'  # separators=(",", ":") — no spaces
+    assert raw == '{"a":1,"b":2}'  # separators=(",", ":"), no spaces
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
@@ -51,3 +51,26 @@ def test_decode_rejects_valid_base64_that_is_not_utf8():
     bad_utf8 = base64.b64encode(b"\xff\xfe\xfd").decode("ascii")
     with pytest.raises(ValueError):
         decode_json_b64(bad_utf8)
+
+
+def test_decode_rejects_junk_that_would_otherwise_decode():
+    # b64decode strips non-alphabet characters unless validate=True. This input
+    # strips to valid base64 holding valid JSON, so without validation it would
+    # decode successfully and the corruption would go unnoticed.
+    clean = encode_json_b64({"a": 1})
+    corrupted = clean[:4] + "*" + clean[4:]
+    assert base64.b64decode(corrupted.encode("ascii"), validate=False) == base64.b64decode(
+        clean.encode("ascii")
+    ), "the junk must strip away cleanly, or this proves nothing"
+    with pytest.raises(ValueError):
+        decode_json_b64(corrupted)
+
+
+def test_non_ascii_survives_the_round_trip_without_escapes():
+    # ensure_ascii=False keeps the JSON as raw UTF-8. With escaping the payload
+    # still round-trips, but it grows several times over for non-Latin labels.
+    payload = {"label": "s\u00e4ulen", "cjk": "\u5fc3\u81d3"}
+    assert decode_json_b64(encode_json_b64(payload)) == payload
+    raw = base64.b64decode(encode_json_b64(payload)).decode("utf-8")
+    assert "s\u00e4ulen" in raw, "the JSON must hold the character, not an escape"
+    assert "\\u00e4" not in raw

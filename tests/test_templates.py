@@ -5,6 +5,8 @@ import hashlib
 import json
 import re
 
+import pytest
+
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
 from randomized_occlusion.config.render_config import RenderConfig
 from randomized_occlusion.notetype.spec import DEFAULT_SPEC
@@ -169,3 +171,25 @@ def test_fingerprint_changes_with_config():
 
 def test_fingerprint_changes_with_render_js():
     assert _assembler("a").fingerprint(RC) != _assembler("b").fingerprint(RC)
+
+
+def test_web_assets_are_decoded_as_utf8():
+    # Read under a single-byte codec the file still loads, but every
+    # multi-byte character becomes mojibake: no exception, no replacement
+    # characters. Compare against an explicit utf-8 decode of the bytes
+    # rather than against a property mojibake also satisfies.
+    from pathlib import Path
+
+    import randomized_occlusion
+    from randomized_occlusion.resources import read_web
+
+    web = Path(randomized_occlusion.__file__).parent / "web" / "review" / "render.js"
+    raw = web.read_bytes()
+    if all(byte < 128 for byte in raw):
+        # Nothing to detect: mojibake needs a multi-byte character to mangle.
+        # Skipped rather than failed, because an all-ASCII render.js is a
+        # perfectly good state for this repo to be in.
+        pytest.skip("render.js is currently all ASCII")
+    # read_text translates newlines; read_bytes does not, and the tree is CRLF.
+    expected = raw.decode("utf-8").replace(chr(13) + chr(10), chr(10))
+    assert read_web("review/render.js") == expected

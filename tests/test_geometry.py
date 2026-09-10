@@ -29,3 +29,12 @@ def test_is_immutable():
 def test_roundtrip_dict():
     point = NormalizedPoint(0.42, 0.67)
     assert NormalizedPoint.from_dict(point.to_dict()) == point
+
+
+def test_coordinates_are_stored_as_floats():
+    # The payload is JSON; an int here would serialise as `0` rather than `0.0`,
+    # and a Decimal or numpy scalar would not serialise at all.
+    point = NormalizedPoint(x=0, y=1)
+    assert isinstance(point.x, float)
+    assert isinstance(point.y, float)
+    assert repr(point.x) == "0.0"

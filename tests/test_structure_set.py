@@ -61,8 +61,8 @@ def test_cloze_field_escapes_metacharacters():
 
 def test_cloze_field_is_the_same_for_every_direction():
     # Every direction (forward / reverse / both) generates one card per
-    # structure; direction is applied by the RENDERER — a fresh random pick each
-    # review for "both" (issue #5) — not by the cloze grammar. Pin that.
+    # structure. Direction is applied by the RENDERER (a fresh random pick each
+    # review for "both", issue #5), not by the cloze grammar. Pin that.
     s = StructureSet.from_unordered([_s(1, "a"), _s(1, "b")])
     forward = s.cloze_field(CardOptions(direction=Direction.FORWARD))
     assert forward == "{{c1::a}}{{c2::b}}"
@@ -131,3 +131,18 @@ def test_payload_is_ascii_and_html_safe():
     assert payload.isascii()
     assert "<" not in payload and ">" not in payload
     assert _decode_structures(payload) == s
+
+
+def test_ordered_sorts_by_ordinal_not_by_insertion():
+    out_of_order = StructureSet(
+        structures=(_s(2, "second"), _s(3, "third"), _s(1, "first"))
+    )
+    assert [s.ordinal for s in out_of_order.ordered] == [1, 2, 3]
+    assert [s.label for s in out_of_order.ordered] == ["first", "second", "third"]
+
+
+def test_the_payload_declares_version_2():
+    # The reviewer branches on `v` to tell a v2 envelope from a v1 bare array.
+    # A wrong version sends every note down the legacy path.
+    structures = StructureSet(structures=(_s(1, "one"), _s(2, "two")))
+    assert _decode_payload(structures.to_payload_base64(CardOptions()))["v"] == 2

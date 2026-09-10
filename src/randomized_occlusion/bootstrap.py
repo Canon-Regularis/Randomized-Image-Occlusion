@@ -53,7 +53,7 @@ def setup(addon_module: str) -> None:
     _editor_integration.register()
 
     # Install the note type on every profile open, and also right now if a
-    # profile is already open — add-ons can load *after* the initial
+    # profile is already open; add-ons can load *after* the initial
     # profile_did_open has fired, in which case the hook alone would miss it.
     gui_hooks.profile_did_open.append(
         lambda: _install_notetype(config_service)

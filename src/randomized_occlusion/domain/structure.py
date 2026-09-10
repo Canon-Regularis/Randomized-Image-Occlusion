@@ -31,7 +31,7 @@ class Structure:
 
     Crucially, a structure stores *only* the fixed target location. Where the
     prompt box is drawn is decided at review time by the renderer and is never
-    persisted — that is what makes placement randomisable.
+    persisted; that is what makes placement randomisable.
     """
 
     ordinal: int

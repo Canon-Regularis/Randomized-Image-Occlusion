@@ -17,7 +17,7 @@ def _cloze_escape(label: str) -> str:
     """Neutralise cloze metacharacters so a label is safe as a cloze answer.
 
     Collapse to a fixpoint, not in a single pass: a one-shot replace turns
-    ``{{{{`` into ``{{`` — reconstituting a live cloze opener — so a crafted
+    ``{{{{`` into ``{{``, reconstituting a live cloze opener, so a crafted
     label like ``{{{{c2::::x}}}}`` would slip a valid ``{{c2::…}}`` into the
     Ordinals field and make Anki generate a *phantom* card 2 for a note that has
     only one structure (an ordinal with no matching structure). Looping until the
@@ -119,7 +119,7 @@ class StructureSet:
         KNOWN LIMITATION: the escaping (:func:`_cloze_escape`) is what Anki's
         NATIVE type box grades against, so a label containing ``::``, ``{{`` or
         ``}}`` (e.g. ``std::vector``) is graded in its escaped form (``std:vector``)
-        even though the learner sees the raw label — so typing the displayed answer
+        even though the learner sees the raw label, so typing the displayed answer
         is marked wrong. This only affects *multi-mode type-to-answer*; the drawn
         prompt and single-mode's own grader use the raw label. Cloze metacharacters
         can't be un-escaped without breaking Anki's cloze parsing, so for labels
@@ -127,8 +127,8 @@ class StructureSet:
 
         Every mode emits exactly one card per structure. In single mode that one
         card cycles through all structures (the cloze answer is inert). In multi
-        mode the card's direction — forward, reverse, or, for ``Direction.BOTH``,
-        a fresh random pick each review — is chosen by the renderer, not encoded
+        mode the card's direction (forward, reverse, or, for ``Direction.BOTH``,
+        a fresh random pick each review) is chosen by the renderer, not encoded
         in the ordinal, so all three directions share these clozes.
         """
         if options.mode == CardMode.SINGLE:

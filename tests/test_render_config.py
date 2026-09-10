@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
 from randomized_occlusion.config.render_config import RenderConfig
 from randomized_occlusion.domain.codec import encode_json_b64
@@ -87,7 +89,7 @@ def test_non_finite_int_config_falls_back_instead_of_crashing():
 
 def test_huge_int_in_a_float_field_falls_back_instead_of_crashing():
     # A hand-edited config.json can hold an integer literal too large to convert
-    # to a float — json.loads parses it as a Python int and float(10**400) raises
+    # to a float; json.loads parses it as a Python int and float(10**400) raises
     # OverflowError. from_mapping must stay total (never raise), or note-type
     # install and card saving would crash for that profile.
     for bad in [10**400, 10**320, int("9" * 500)]:
@@ -107,3 +109,62 @@ def test_malicious_or_malformed_colors_fall_back_to_default():
             RenderConfig.from_mapping({"accent_color": color}).accent_color
             == DEFAULT_CONFIG["accent_color"]
         )
+
+
+#: The three booleans behaviour() publishes, paired with their JS names.
+_BOOLEANS = [
+    ("show_target_dot", "showTargetDot"),
+    ("show_decoy_dots", "showDecoyDots"),
+    ("show_context_labels", "showContextLabels"),
+]
+
+
+def test_behaviour_scalars_are_wired_to_the_right_fields():
+    # The key-set assertions above pass whatever each key maps to. Every value
+    # here is distinct, so a crossed wire between two of them cannot look right.
+    # The booleans are checked separately: no three booleans can all differ, so
+    # setting them together lets a swapped pair hide.
+    rc = RenderConfig.from_mapping({
+        **DEFAULT_CONFIG,
+        "min_arrow_fraction": 0.31,
+        "prompt_text": "??",
+        "max_placement_attempts": 17,
+    })
+    behaviour = rc.behaviour()
+    assert behaviour["minArrowFraction"] == 0.31
+    assert behaviour["promptText"] == "??"
+    assert behaviour["maxPlacementAttempts"] == 17
+
+
+@pytest.mark.parametrize(("key", "js_key"), _BOOLEANS)
+def test_each_behaviour_flag_is_wired_to_its_own_field(key, js_key):
+    # One at a time against an all-false baseline, and the other two are asserted
+    # to stay false. Setting several at once is what let show_decoy_dots and
+    # show_context_labels be exchanged with every assertion still passing.
+    baseline = {**DEFAULT_CONFIG, **{name: False for name, _ in _BOOLEANS}}
+    behaviour = RenderConfig.from_mapping({**baseline, key: True}).behaviour()
+    assert [name for _, name in _BOOLEANS if behaviour[name]] == [js_key]
+
+
+def test_css_variables_are_wired_to_the_right_colours():
+    rc = RenderConfig.from_mapping({
+        **DEFAULT_CONFIG,
+        "accent_color": "#111111",
+        "box_fill": "#222222",
+        "box_text_color": "#333333",
+        "target_dot_color": "#444444",
+    })
+    variables = rc.css_variables()
+    assert variables["--ro-accent"] == "#111111"
+    assert variables["--ro-box-fill"] == "#222222"
+    assert variables["--ro-box-text"] == "#333333"
+    assert variables["--ro-dot"] == "#444444"
+
+
+def test_every_falsey_spelling_reads_as_false():
+    for text in ("false", "0", "no", "off", "", "none", "  OFF  ", "No"):
+        rc = RenderConfig.from_mapping({**DEFAULT_CONFIG, "show_target_dot": text})
+        assert rc.show_target_dot is False, text
+    for text in ("true", "1", "yes", "on", "anything"):
+        rc = RenderConfig.from_mapping({**DEFAULT_CONFIG, "show_target_dot": text})
+        assert rc.show_target_dot is True, text

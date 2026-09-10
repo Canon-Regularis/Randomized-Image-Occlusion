@@ -6,7 +6,7 @@ The mirror of :mod:`create_note`: it rebuilds the note's fields from the edited
 them back inside one ``CollectionOp`` so the edit runs off the UI thread and is a
 single undo step. Changing the number of markers, the direction, or the mode
 changes the cloze ordinals, so ``update_note`` regenerates the note's cards to
-match — exactly as editing any cloze note does.
+match, exactly as editing any cloze note does.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def update_randomized_occlusion_note(
 
     def op(col: Any) -> Any:
         # prepare_content installs the note type and, when the user picked a new
-        # picture, imports it — the fallible work that must precede the undo entry
+        # picture, imports it: the fallible work that must precede the undo entry
         # (see its docstring). An unchanged image is reused by basename.
         content = prepare_content(
             col,

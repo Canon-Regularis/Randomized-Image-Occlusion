@@ -1,7 +1,7 @@
 """The single, undo-safe entry point that mutates the collection.
 
-Everything that changes the database — installing the note type, importing the
-image into media, and adding the note — happens inside one ``CollectionOp`` so
+Everything that changes the database (installing the note type, importing the
+image into media, and adding the note) happens inside one ``CollectionOp`` so
 it runs off the UI thread, refreshes the UI, and collapses into a single undo
 step.
 """
@@ -48,7 +48,7 @@ def add_randomized_occlusion_note(
     """Run the note-creation ``CollectionOp`` in the background."""
 
     def op(col: Any) -> Any:
-        # prepare_content installs the note type and imports the chosen image —
+        # prepare_content installs the note type and imports the chosen image:
         # the fallible work that must precede the undo entry (see its docstring).
         content = prepare_content(
             col,

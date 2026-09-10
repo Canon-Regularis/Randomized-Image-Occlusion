@@ -1,9 +1,9 @@
 """Shared wiring for the note-mutating ``CollectionOp``s.
 
 The add and edit ops differ only in how they resolve the image and how they write
-the note. Everything around that — launching the op off the UI thread, the
-fallible prelude that must precede any undo entry, and opening/merging that entry
-— is identical, so it lives here once.
+the note. Everything around that (launching the op off the UI thread, the
+fallible prelude that must precede any undo entry, and opening/merging that
+entry) is identical, so it lives here once.
 """
 
 from __future__ import annotations
@@ -49,14 +49,14 @@ def prepare_content(
     header: str,
     back_extra: str,
 ) -> NoteContent:
-    """Build a note's field values — the fallible prelude both note ops share.
+    """Build a note's field values: the fallible prelude both note ops share.
 
     Two steps here can fail on external state, and both MUST happen before
     :func:`commit_with_undo` opens a custom undo entry, or the failure would
     strand a half-open entry and corrupt Anki's undo queue:
 
     * ``ensure_installed`` may add or update the note type, a schema change that
-      clears the undo queue outright (normally a no-op — bootstrap installs the
+      clears the undo queue outright (normally a no-op; bootstrap installs the
       note type at profile open); and
     * ``resolve_image`` may import a file the user has since moved or deleted.
 

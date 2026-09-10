@@ -76,7 +76,7 @@ class CardOptions:
         """Build the editor's default options from the add-on config mapping.
 
         The config persists the card model under the key ``card_mode`` (a stable
-        key in users' profiles), which maps to :attr:`mode` — this method is the
+        key in users' profiles), which maps to :attr:`mode`; this method is the
         single place that translation lives.
         """
         return cls(

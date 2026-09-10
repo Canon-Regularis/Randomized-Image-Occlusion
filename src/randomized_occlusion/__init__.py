@@ -1,10 +1,10 @@
-"""Randomized Image Occlusion — an Anki add-on.
+"""Randomized Image Occlusion: an Anki add-on.
 
 Standard image occlusion hides a label at a *fixed* spot, so learners tend to
 memorise "the box in the top-left is the aorta" by position rather than truly
 identifying the structure. This add-on instead places a prompt box at a
 *randomised* location on every review and draws a leader-line arrow from it to
-the structure's fixed location — forcing you to follow the arrow and identify
+the structure's fixed location, forcing you to follow the arrow and identify
 what it actually points at.
 
 This module is the add-on entry point. To keep the package importable without

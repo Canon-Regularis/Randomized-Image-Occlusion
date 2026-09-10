@@ -1,6 +1,6 @@
 """Value objects for the add-on's coordinate model.
 
-All structure positions are stored as *normalized* coordinates — fractions of
+All structure positions are stored as *normalized* coordinates: fractions of
 the image's width and height in the closed interval ``[0, 1]``. This keeps the
 data resolution-independent: the same note renders correctly whether the image
 is shown at 200px on a phone or 1600px on a desktop, because the reviewer maps

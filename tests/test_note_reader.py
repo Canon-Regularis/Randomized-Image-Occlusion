@@ -184,7 +184,7 @@ def test_legacy_v2_multi_without_interaction_uses_the_type_flag_field():
 def test_legacy_payload_context_labels_falls_back_to_the_supplied_default():
     # A payload predating the contextLabels key (v1 array, or a v2 note from
     # before the key) has no stored value. render.js renders such notes using the
-    # GLOBAL config, so the reader must mirror that via context_labels_default —
+    # GLOBAL config, so the reader must mirror that via context_labels_default;
     # otherwise editing + saving would bake in a literal False and silently
     # suppress the context labels the note currently shows.
     v1_payload = encode_json_b64([s.to_dict() for s in _structures().ordered])
@@ -211,7 +211,7 @@ def test_legacy_payload_context_labels_falls_back_to_the_supplied_default():
 
 def test_explicit_context_labels_ignores_the_default():
     # A v2 payload that DID store the key must use the stored value, not the
-    # fallback — so a user who turned context labels off keeps them off even if
+    # fallback, so a user who turned context labels off keeps them off even if
     # the global config default is on.
     payload = encode_json_b64(
         {
@@ -263,3 +263,29 @@ def test_structure_set_from_dicts_matches_from_json():
     dicts = [s.to_dict() for s in _structures().ordered]
     from_dicts = StructureSet.from_dicts(dicts)
     assert from_dicts == _structures()
+
+
+def test_only_the_first_img_tag_supplies_the_filename():
+    # A hand-edited note can hold more than one <img>; the first is the one the
+    # card renders, so it is the one whose file must be kept.
+    reader = NoteReader(DEFAULT_SPEC)
+    loaded = reader.read(
+        {
+            DEFAULT_SPEC.image_field: '<img src="first.png"><img src="second.png">',
+            DEFAULT_SPEC.structures_field: _structures().to_payload_base64(CardOptions()),
+        },
+        context_labels_default=False,
+    )
+    assert loaded.image_filename == "first.png"
+
+
+def test_an_img_with_an_empty_src_is_skipped():
+    reader = NoteReader(DEFAULT_SPEC)
+    loaded = reader.read(
+        {
+            DEFAULT_SPEC.image_field: '<img src=""><img src="real.png">',
+            DEFAULT_SPEC.structures_field: _structures().to_payload_base64(CardOptions()),
+        },
+        context_labels_default=False,
+    )
+    assert loaded.image_filename == "real.png"

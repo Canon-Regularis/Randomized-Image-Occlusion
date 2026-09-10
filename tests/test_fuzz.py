@@ -1,7 +1,7 @@
 """Property/fuzz tests: hammer the core invariants with randomized inputs.
 
 Randomness is seeded (``random.Random(seed)``) so every failure is reproducible
-from the ``seed`` shown in the parametrization — no flakiness, but broad coverage
+from the ``seed`` shown in the parametrization: no flakiness, but broad coverage
 of label/option/coordinate combinations a hand-written case would miss.
 """
 
@@ -28,7 +28,7 @@ from randomized_occlusion.domain.structure_set import StructureSet
 from randomized_occlusion.notetype.spec import DEFAULT_SPEC
 
 # A deliberately nasty alphabet: cloze metacharacters, HTML, quotes, JSON
-# specials, whitespace, and non-ASCII — everything that could break escaping,
+# specials, whitespace, and non-ASCII: everything that could break escaping,
 # the base64/JSON payload, or the cloze field.
 _LABEL_CHARS = (
     string.ascii_letters

@@ -30,3 +30,12 @@ def test_rejects_non_positive_ordinal():
 def test_rejects_blank_label(label):
     with pytest.raises(ValueError):
         _structure(label=label)
+
+
+def test_from_dict_coerces_the_stored_types():
+    # Field values come back from Anki as JSON, where a hand-edited note can
+    # carry the ordinal as a string and the label as a number.
+    structure = Structure.from_dict({"ord": "2", "x": "0.25", "y": 0, "label": 7})
+    assert structure.ordinal == 2 and isinstance(structure.ordinal, int)
+    assert structure.target.x == 0.25 and isinstance(structure.target.x, float)
+    assert structure.label == "7" and isinstance(structure.label, str)

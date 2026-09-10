@@ -38,7 +38,7 @@ def _as_float(value: Any, default: float, *, low: float, high: float) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
-        # OverflowError: float(huge_int) — a hand-edited config can hold an integer
+        # OverflowError: float(huge_int); a hand-edited config can hold an integer
         # literal too large to convert to a float; from_mapping must stay total
         # (matches _as_int, which guards the same case).
         return default
@@ -51,7 +51,7 @@ def _as_int(value: Any, default: int, *, minimum: int, maximum: int | None = Non
     try:
         number = int(value)
     except (TypeError, ValueError, OverflowError):
-        # OverflowError: int(float("inf")) — a hand-edited config can smuggle
+        # OverflowError: int(float("inf")); a hand-edited config can smuggle
         # a non-finite value in via JSON, and from_mapping must stay total.
         return default
     number = max(minimum, number)
@@ -84,7 +84,7 @@ class RenderConfig:
     """The config that actually shapes the installed template/CSS.
 
     Per-note choices (direction/interaction/mode) live on
-    :class:`~randomized_occlusion.domain.card_options.CardOptions`, not here —
+    :class:`~randomized_occlusion.domain.card_options.CardOptions`, not here;
     this object only carries values baked into the note type's HTML/CSS/JS.
     """
 
