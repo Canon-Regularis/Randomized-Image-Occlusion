@@ -29,6 +29,13 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# mutate.py is a table of code fragments quoted verbatim from the files it
+# mutates. They have to match the source byte for byte, so wrapping them to fit
+# a line limit would make them harder to read against the original and easier to
+# get subtly — and silently — wrong.
+"mutate.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.10"
 files = ["src"]

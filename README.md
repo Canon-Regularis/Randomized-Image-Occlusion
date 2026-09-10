@@ -129,10 +129,12 @@ Either way, you'll now see **Tools → Randomized Image Occlusion…** in the me
 ## How to use it
 
 1. Go to **Tools → Randomized Image Occlusion…**.
-2. Click **Load image…** and choose your diagram.
+2. Click **Load image…** and choose your diagram - or press **Ctrl+V** to paste
+   one straight from the clipboard (see [Pasting an image](#pasting-an-image)).
 3. Click each structure on the image to drop a numbered marker, and type its
    label. Repeat for every part you want to learn. (Drag a marker to reposition
    it; click the × in the list to remove one.)
+   *Scroll to zoom in* if you need to be precise - see [Zooming in](#zooming-in).
 4. *(Optional)* Add a header, some back-of-card notes, pick a deck, and choose any
    of the study modes above.
 5. Click **Save**. Your cards are added to the deck.
@@ -140,6 +142,47 @@ Either way, you'll now see **Tools → Randomized Image Occlusion…** in the me
 Then just review like any other Anki cards. Each time, the prompt box lands
 somewhere new with an arrow to the structure - so you're always answering *"what
 is this?"*, never *"what usually goes in this corner?"*.
+
+### Pasting an image
+
+You don't have to save a picture to disk first. Press **Ctrl+V**, or click
+**Paste image**, and whatever is on the clipboard is used:
+
+- a **screenshot** (Windows `Win+Shift+S`, macOS `Cmd+Shift+4`, most Linux
+  screenshot tools) - saved as a PNG;
+- an image **copied from a web page** or another app - kept in the format that
+  app published, so a copied animated GIF stays animated;
+- an image **file copied in your file manager** - used as-is, keeping its own
+  name and bytes.
+
+This works both when creating a card and when editing one, and **Load image…**
+still works exactly as before if you'd rather pick a file. Ctrl+V still pastes
+*text* wherever you are typing — the **Header** and **Back extra** boxes, and the
+label fields beside the image — so it only reaches for the clipboard's picture
+when you are not in a text field.
+
+Replacing the image clears the markers you have placed, so if there are any you
+will be asked to confirm first.
+
+### Zooming in
+
+Dense diagrams need a closer look, so the canvas zooms:
+
+| | |
+| --- | --- |
+| **Scroll** over the image | Zoom in and out, centred on the pointer |
+| **-** / **+** / **Fit** | The same, from the buttons above the structure list |
+| `+` / `-` / `0` | Zoom in, zoom out, back to fit |
+| **Middle-** or **right-drag**, or **Space** + drag | Pan around a zoomed image |
+| **Arrow keys** | Nudge the selected marker one screen pixel (**Shift** for ten) |
+
+Left-clicking always places a marker, at every zoom level, so panning never drops
+one by mistake. Click a marker to select it before nudging. Zooming only changes
+what you see - marker positions are stored relative to the image, so they come
+out identical however far in you were when you placed them.
+
+The zoom level is remembered for next time, and works the same when you come back
+to edit a card later.
 
 ### From Anki's Add window
 
@@ -154,7 +197,9 @@ never have to touch them by hand.
 Made a typo, or want to nudge a marker? Open the **Browse** window, right-click
 the card, and choose **Edit with Randomized Image Occlusion**. The image and all
 its markers reappear on the canvas exactly as you left them - move them, rename
-them, add or remove structures, change the study mode, then **Save**. Anki
+them, add or remove structures, change the study mode, then **Save**. Zooming,
+nudging and pasting a replacement image all work here too, so a marker that ended
+up slightly off can be corrected precisely. Anki
 updates the card (and adds or removes cards if you changed the number of markers)
 in a single undo step.
 
@@ -180,11 +225,37 @@ editor and menu shells need Anki to run.
 ```sh
 pip install -e ".[dev]"
 pytest                       # Python tests (domain, config, note pipeline, fuzz)
-node --test tests/js/*.test.js   # headless tests for the reviewer JS
+node --test tests/js/*.test.js   # headless tests for the reviewer and editor JS
+python mutate.py             # mutation testing (see below)
 ruff check .                 # lint
 mypy                         # type-check
 python build.py              # writes dist/randomized_occlusion.ankiaddon
 ```
+
+Coverage shows that a line executed. It does not show that any assertion depends
+on the result: a test can run a line, assert something true either way, and pass
+once the logic behind it is broken. `mutate.py` replaces one expression at a time
+and reports whether the suite fails. Nothing is written to the working tree; each
+mutant exists only inside the process that runs it.
+
+```sh
+python mutate.py               # the whole catalogue (several minutes)
+python mutate.py --list        # what is in it, without running anything
+python mutate.py marker.js     # filter by label or by file
+```
+
+It fails in four cases: a mutation nothing caught (the behaviour is not tested),
+an anchor that no longer matches its source (the code changed and the catalogue
+did not), a mutation listed as knowingly untested that a test did catch (the
+exemption should be removed), and a mutation that never reached the file at all
+(the result would say nothing either way).
+
+Two checks run first, because a kill is only evidence if the suite failed for the
+reason claimed. Every mutant is compiled: one with a syntax error fails its whole
+suite at load, which would otherwise be recorded as a kill. Then a no-op mutation
+is applied to each target and must survive, which catches a suite that is already
+red, or a runner that cannot reach the file. `tests/test_mutate.py` revalidates
+the catalogue against the source on every ordinary test run.
 
 The Python suite includes randomized property/fuzz tests (`test_fuzz.py`) that
 hammer the note round-trip and payload invariants, and the JS suite runs the

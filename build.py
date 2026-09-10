@@ -30,7 +30,7 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 # two clean checkouts of the same commit would hash differently. 1980-01-01 is
 # the earliest the zip format can represent.
 _FIXED_DATE = (1980, 1, 1, 0, 0, 0)
-_UNIX_RW_R_R = 0o644 << 16  # regular file, rw-r--r-- — stable across platforms
+_UNIX_RW_R_R = 0o644 << 16  # regular file, rw-r--r--, stable across platforms
 
 
 def _included(path: Path) -> bool:
@@ -43,7 +43,7 @@ def _entry(arcname: str) -> zipfile.ZipInfo:
     """A ZipInfo with pinned metadata so the archive is byte-reproducible."""
     info = zipfile.ZipInfo(arcname, date_time=_FIXED_DATE)
     info.compress_type = zipfile.ZIP_DEFLATED
-    info.create_system = 3  # Unix — fixed regardless of the build host's OS
+    info.create_system = 3  # Unix, fixed regardless of the build host's OS
     info.external_attr = _UNIX_RW_R_R
     return info
 
@@ -70,17 +70,32 @@ def _manifest_bytes(path: Path, version: str) -> bytes:
     return (json.dumps(data, indent=2) + "\n").encode("utf-8")
 
 
-def build() -> Path:
+def _display(output: Path) -> str:
+    """``output`` relative to the repo, or in full when it lies outside it."""
+    try:
+        return str(output.relative_to(ROOT))
+    except ValueError:
+        return str(output)
+
+
+def build(output: Path = OUTPUT) -> Path:
+    """Write the add-on to ``output`` and return that path.
+
+    ``output`` is a parameter so the tests can build into a temp directory. They
+    build about twenty times, and the mutation harness builds from a deliberately
+    broken ``build.py``; writing to ``dist/`` would leave the shipping artefact as
+    whatever the last mutant produced.
+    """
     if not PACKAGE_DIR.is_dir():
         raise SystemExit(f"package directory not found: {PACKAGE_DIR}")
 
     version = _read_version()
-    DIST_DIR.mkdir(exist_ok=True)
-    if OUTPUT.exists():
-        OUTPUT.unlink()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        output.unlink()
 
     count = 0
-    with zipfile.ZipFile(OUTPUT, "w", zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(PACKAGE_DIR.rglob("*")):
             if not path.is_file() or not _included(path):
                 continue
@@ -93,8 +108,8 @@ def build() -> Path:
             archive.writestr(_entry(arcname), data)
             count += 1
 
-    print(f"Wrote {OUTPUT.relative_to(ROOT)} v{version} ({count} files)")
-    return OUTPUT
+    print(f"Wrote {_display(output)} v{version} ({count} files)")
+    return output
 
 
 if __name__ == "__main__":
