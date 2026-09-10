@@ -67,7 +67,7 @@ _MIME_SUFFIXES: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ClipboardOffer:
     """What the clipboard is offering, as plain Python.
 
@@ -136,7 +136,7 @@ class ClipboardSource(Protocol):
         """Whatever the clipboard can render as an image, or ``None``."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PasteChoice:
     """Where a pasted image is coming from. Exactly one field is set."""
 

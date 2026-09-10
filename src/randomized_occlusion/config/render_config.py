@@ -79,7 +79,7 @@ def _as_color(value: Any, default: str) -> str:
     return text if _COLOR_RE.match(text) else default
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class RenderConfig:
     """The config that actually shapes the installed template/CSS.
 

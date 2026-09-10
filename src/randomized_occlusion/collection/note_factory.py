@@ -23,7 +23,7 @@ def _image_field_html(filename: str) -> str:
     return f'<img src="{html.escape(filename, quote=True)}">'
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class NoteContent:
     """The fully-resolved field values for a single note, ready to be added."""
 

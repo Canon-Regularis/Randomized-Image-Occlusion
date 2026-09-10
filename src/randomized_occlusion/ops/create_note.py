@@ -24,7 +24,7 @@ __all__ = ["NoteRequest", "add_randomized_occlusion_note"]
 _UNDO_NAME = "Add Randomized Occlusion note"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class NoteRequest:
     """Everything needed to create one note, gathered from the editor."""
 

@@ -19,7 +19,7 @@ class StructureDict(TypedDict):
     label: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Structure:
     """A single labelled point on an image.
 

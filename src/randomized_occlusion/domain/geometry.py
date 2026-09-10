@@ -37,7 +37,7 @@ def _ensure_unit_interval(value: float, name: str) -> float:
     return number
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class NormalizedPoint:
     """An immutable point expressed as fractions of an image's dimensions.
 

@@ -38,7 +38,7 @@ def extract_fingerprint(css: str) -> str | None:
     return match.group(1) if match else None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AssembledTemplate:
     """The three strings Anki stores on a note type, plus their fingerprint."""
 

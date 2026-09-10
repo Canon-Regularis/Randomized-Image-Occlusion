@@ -33,7 +33,7 @@ def _cloze_escape(label: str) -> str:
     return label
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class StructureSet:
     """All structures marked on one image, forming one Anki note.
 

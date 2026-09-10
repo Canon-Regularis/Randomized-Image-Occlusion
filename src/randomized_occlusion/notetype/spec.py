@@ -13,7 +13,7 @@ from dataclasses import dataclass
 __all__ = ["DEFAULT_SPEC", "NoteTypeSpec"]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class NoteTypeSpec:
     """Field layout and identity of the note type."""
 

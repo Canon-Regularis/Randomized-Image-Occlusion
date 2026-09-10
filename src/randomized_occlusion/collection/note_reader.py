@@ -36,7 +36,7 @@ def note_fields(note: Any) -> dict[str, str]:
     return {name: note[name] for name in field_names}
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class LoadedNote:
     """Everything the editor needs to re-open an existing note for editing."""
 

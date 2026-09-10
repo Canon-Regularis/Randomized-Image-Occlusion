@@ -62,7 +62,7 @@ class CardMode(_StrChoice):
     SINGLE = "single"  # one card that cycles through all structures
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CardOptions:
     """The per-note choices that determine how a note's cards are generated."""
 

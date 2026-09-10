@@ -27,7 +27,7 @@ __all__ = ["UpdateRequest", "update_randomized_occlusion_note"]
 _UNDO_NAME = "Edit Randomized Occlusion note"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class UpdateRequest:
     """Everything needed to rewrite one existing note, gathered from the editor.
 

@@ -34,7 +34,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class MarkupResult:
     """The validated output of a marking session, ready to be persisted."""
 
