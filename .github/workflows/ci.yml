@@ -21,14 +21,17 @@ jobs:
   # These gates are version-agnostic, so ruff/mypy run here exactly once; the
   # `pytest` job below adds cross-version runtime coverage without repeating them.
   check:
-    name: lint · types · tests (py3.10)
+    name: lint · types · tests (py3.9)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          # The floor Anki actually gives us: it bundled Python 3.9 from 23.10
+          # (this add-on's min_point_version) until 25.07. A construct newer than
+          # this makes the add-on fail to LOAD, which no other job would notice.
+          python-version: "3.9"
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install dev tooling
@@ -49,7 +52,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        # Up to 3.13, which is what Anki 25.07 and later bundle, so the
+        # interpreter most users are actually on is covered.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,6 +76,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Every JS suite is reachable by the runner
+        # `node --test tests/js/*.test.js` runs one flat pattern. Node 21+ treats
+        # the argument as a glob, so a pattern matching nothing is zero tests and
+        # exit 0 - a silently green job. And the pattern is narrower than node's
+        # own discovery: a suite in a subdirectory, or named `.spec.js`, would
+        # never run. Compare the pattern against every suite in the tree.
+        run: |
+          expected=$(find tests -name '*.test.js' -o -name '*.spec.js' | sort)
+          actual=$(ls -1 tests/js/*.test.js | sort)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::JS suites exist that the runner would not run"
+            echo "the runner covers:"
+            echo "$actual"
+            echo "the tree contains:"
+            echo "$expected"
+            exit 1
+          fi
+          echo "$actual" | wc -l
       - run: node --test tests/js/*.test.js
 
   # Green suites are not the same as suites that would go red. This runs the
@@ -81,7 +104,9 @@ jobs:
   mutation:
     name: mutation testing
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The only job whose cost grows with the catalogue: one child process per
+    # mutation, ~7-10 min for 185 on a 2-vCPU runner. Headroom, not a target.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
