@@ -7,6 +7,7 @@ refreshed automatically the next time a profile is opened.
 | Key | Meaning |
 | --- | --- |
 | `deck` | Deck the editor selects by default. Updated when you pick a deck while adding a card. |
+| `editor_zoom` | Zoom the marking canvas opens at, as a multiple of the fitted size (`1.0` shows the whole image, `4.0` is 4x). Updated as you zoom while marking up, so the editor reopens where you left it. Clamped to 1-8; it is a multiple of *fit*, not of the image's own pixels, so it means the same thing on any image. |
 | `min_arrow_fraction` | Shortest allowed arrow length, as a fraction of the image's diagonal. Larger values push the prompt box further from the structure. |
 | `show_target_dot` | Draw a dot on the structure the arrow points at. (Hidden on a *reverse* question side, where a lone dot would give away the location you're being asked to find.) |
 | `prompt_text` | Text shown inside the prompt box on the question side. |

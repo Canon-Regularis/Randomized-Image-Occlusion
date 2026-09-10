@@ -1,5 +1,6 @@
 {
   "deck": "Default",
+  "editor_zoom": 1.0,
   "min_arrow_fraction": 0.22,
   "show_target_dot": true,
   "prompt_text": "?",

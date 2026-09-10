@@ -12,6 +12,9 @@ from typing import Any
 DEFAULT_CONFIG: dict[str, Any] = {
     # Where new notes are placed when the editor's deck picker is unused.
     "deck": "Default",
+    # Zoom the marking canvas opens at, as a multiple of the fitted size
+    # (1.0 = the whole image visible). Updated as you zoom while marking up.
+    "editor_zoom": 1.0,
     # --- behaviour (consumed by the reviewer JS) ---
     # Shortest allowed arrow length, as a fraction of the image's diagonal.
     "min_arrow_fraction": 0.22,

@@ -8,12 +8,24 @@ persisted values over :data:`DEFAULT_CONFIG`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any, Protocol
 
 from ..domain.card_options import CardOptions
 from .defaults import DEFAULT_CONFIG
 from .render_config import RenderConfig
+
+# The canvas clamps to the same range (see MIN_ZOOM/MAX_ZOOM in marker.js);
+# these mirror it so a hand-edited config can never ask for a level the
+# editor would silently refuse.
+#: Distinguishes "the defaults say nothing about this key" from "the default
+#: happens to be None", so an unrecognised key is never dropped as a duplicate.
+_UNSET = object()
+
+MIN_EDITOR_ZOOM = 1.0
+MAX_EDITOR_ZOOM = 8.0
+DEFAULT_EDITOR_ZOOM = 1.0
 
 __all__ = [
     "AnkiConfigProvider",
@@ -32,7 +44,7 @@ class ConfigProvider(Protocol):
 
 
 class InMemoryConfigProvider:
-    """A provider backed by a plain dict — used in tests and headless contexts."""
+    """A provider backed by a plain dict, used in tests and headless contexts."""
 
     def __init__(self, initial: Mapping[str, Any] | None = None) -> None:
         self._data: dict[str, Any] = dict(initial) if initial else {}
@@ -81,12 +93,55 @@ class ConfigService:
         return str(self.load().get("deck", DEFAULT_CONFIG["deck"]))
 
     def set_deck(self, deck_name: str) -> None:
-        # Persist only the stored values plus the deck — NOT the full merged
-        # config. Writing the merge would bake today's DEFAULT_CONFIG values into
-        # the user's saved config, so a later change to a default would never
-        # reach them for keys they never set. load() re-merges over defaults, so
-        # untouched keys keep tracking the defaults.
+        self._write_delta("deck", deck_name)
+
+    def editor_zoom(self) -> float:
+        """The zoom the marking canvas opens at, as a multiple of the fitted size.
+
+        Total, like :meth:`RenderConfig.from_mapping`: a hand-edited config with
+        a string, a NaN or an absurd number must not stop the editor opening, so
+        anything unusable falls back to the fitted view.
+        """
+        return self._clamp_zoom(self.load().get("editor_zoom", DEFAULT_EDITOR_ZOOM))
+
+    def set_editor_zoom(self, zoom: float) -> None:
+        self._write_delta("editor_zoom", self._clamp_zoom(zoom))
+
+    @staticmethod
+    def _clamp_zoom(zoom: float) -> float:
+        try:
+            value = float(zoom)
+        except (TypeError, ValueError):
+            return DEFAULT_EDITOR_ZOOM
+        if not math.isfinite(value):
+            return DEFAULT_EDITOR_ZOOM
+        return max(MIN_EDITOR_ZOOM, min(MAX_EDITOR_ZOOM, value))
+
+    def _write_delta(self, key: str, value: Any) -> None:
+        """Persist ``key``, and nothing that merely repeats a default.
+
+        Writing back everything the provider hands over would bake today's
+        DEFAULT_CONFIG into the user's saved config, so a later change to a
+        default would never reach them. That is not hypothetical: Anki's
+        ``getConfig()`` returns config.json's defaults already merged with the
+        user's own values, so :class:`AnkiConfigProvider` always yields the full
+        key set and a single write would freeze every key at once. Filtering here
+        makes the behaviour the same whichever provider is in use.
+
+        The trade-off is that Anki records no distinction between a key the user
+        set to today's default and one they never set, so a value equal to the
+        default is dropped and will move if that default later changes. That
+        applies to ``key`` itself: setting something back to the shipped default
+        removes it rather than pinning it. Keys the defaults say nothing about are
+        always kept, since nothing here can tell what they mean.
+        """
         stored = self._provider.get()
         config = dict(stored) if stored else {}
-        config["deck"] = deck_name
-        self._provider.write(config)
+        config[key] = value
+        self._provider.write(
+            {
+                name: setting
+                for name, setting in config.items()
+                if DEFAULT_CONFIG.get(name, _UNSET) != setting
+            }
+        )
