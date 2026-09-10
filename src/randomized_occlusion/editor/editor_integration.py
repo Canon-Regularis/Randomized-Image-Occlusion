@@ -3,8 +3,8 @@
 When Anki's **Add** window is composing a note with the **Randomized Image
 Occlusion** note type selected, this adds an **Occlusion** button to the editor
 toolbar. Clicking it opens the same marking dialog the Tools menu opens
-(:class:`~randomized_occlusion.editor.launcher.EditorLauncher`) — the marking
-canvas, a deck picker, and the undo-safe create op — so an occlusion card can be
+(:class:`~randomized_occlusion.editor.launcher.EditorLauncher`), with its
+marking canvas, deck picker, and undo-safe create op, so an occlusion card can be
 built straight from the Add window instead of hand-editing the raw base64 fields.
 
 The button only opens the creator when the occlusion note type is the one
@@ -45,7 +45,7 @@ class EditorIntegration:
         """True for the editor embedded in Anki's Add window.
 
         Anki has changed how "add mode" is exposed over releases, so check every
-        signal — missing all of them would silently hide the button.
+        signal; missing all of them would silently hide the button.
         """
         mode = getattr(editor, "editorMode", None)
         if getattr(mode, "name", "") == "ADD_CARDS":
@@ -84,7 +84,7 @@ class EditorIntegration:
             # `button.linkb:not(.perm)` whenever no editor field is focused
             # (setAddonButtonsDisabled, fired on field focusout). Switching note
             # type via the chooser blurs the field and leaves focus on a Qt
-            # widget — not a field — so the button would stay stuck-disabled and
+            # widget, not a field, so the button would stay stuck-disabled and
             # unclickable until the Add window is reopened. This action opens a
             # dialog and never touches the focused field, so mark it permanent
             # (adds the `perm` class) to opt out of that focus-gating entirely.

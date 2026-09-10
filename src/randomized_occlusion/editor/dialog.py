@@ -29,15 +29,19 @@ from aqt.qt import (
     QFileDialog,
     QFormLayout,
     QGroupBox,
+    QGuiApplication,
     QHBoxLayout,
+    QKeySequence,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QShortcut,
+    Qt,
     QVBoxLayout,
     qconnect,
 )
-from aqt.utils import showWarning, tooltip
+from aqt.utils import askUser, showWarning, tooltip
 from aqt.webview import AnkiWebView
 
 from ..collection.note_reader import LoadedNote
@@ -48,11 +52,20 @@ from ..domain.structure import Structure
 from ..domain.structure_set import StructureSet
 from ..resources import read_web
 from .bridge import MarkerBridge
+from .clipboard_image import IMAGE_FILE_FILTER, ClipboardOffer, resolve_paste
+from .messages import count_phrase, replace_image_prompt
+from .paste_scratch import PasteScratch
 from .savers import MarkupResult, NoteSaver
+from .zoom_memory import ZoomMemory
 
 __all__ = ["MarkerDialog"]
 
-_IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)"
+
+_NO_CLIPBOARD_IMAGE = (
+    "There is no image on the clipboard.\n\n"
+    "Copy a picture first — a screenshot, an image from a web page, or an image "
+    "file in your file manager — then paste it here."
+)
 
 # (enum member, display label) pairs backing the option combo boxes.
 _DIRECTION_CHOICES: tuple[tuple[Direction, str], ...] = (
@@ -64,6 +77,31 @@ _CARD_MODE_CHOICES: tuple[tuple[CardMode, str], ...] = (
     (CardMode.MULTI, "Multi — one card per label"),
     (CardMode.SINGLE, "Single — cycle all on one card"),
 )
+
+
+class _QtClipboard:
+    """The Qt half of :class:`~.clipboard_image.ClipboardSource`.
+
+    Nothing but adapters: every decision about what to take lives in
+    ``clipboard_image``, where it can be tested without Qt.
+    """
+
+    def __init__(self, clipboard: Any, mime: Any) -> None:
+        self._clipboard = clipboard
+        self._mime = mime
+
+    def offer(self) -> ClipboardOffer:
+        return ClipboardOffer(
+            urls=tuple(url.toLocalFile() for url in self._mime.urls()),
+            formats=tuple(self._mime.formats()),
+        )
+
+    def data_for(self, mime: str) -> bytes:
+        return bytes(self._mime.data(mime))
+
+    def bitmap(self) -> Any | None:
+        image = self._clipboard.image()
+        return None if image is None or image.isNull() else image
 
 
 class MarkerDialog(QDialog):
@@ -84,6 +122,9 @@ class MarkerDialog(QDialog):
         # image). When a prefilled note's image is unchanged, `_existing_filename`
         # is reused instead.
         self._new_image_path: str | None = None
+        # Where images pasted from the clipboard live until the collection
+        # takes them; created on first paste, dropped when the dialog is done.
+        self._scratch = PasteScratch()
         self._existing_filename: str | None = (
             prefill.image_filename if prefill is not None else None
         )
@@ -100,8 +141,14 @@ class MarkerDialog(QDialog):
         self._marker_count = len(prefill.structures) if prefill is not None else 0
         # An image to show once the webview signals it is ready. (data_url, markers).
         self._pending_display: tuple[str, list[dict[str, Any]] | None] | None = None
+        # The canvas reports the zoom level as the user changes it; this
+        # remembers it so the editor reopens where they left it.
+        self._zoom = ZoomMemory(config_service)
         self._bridge = MarkerBridge(
-            on_ready=self._on_web_ready, on_count=self._on_count
+            on_ready=self._on_web_ready,
+            on_count=self._on_count,
+            on_zoom=self._on_zoom,
+            on_text_focus=self._on_text_focus,
         )
 
         self.setWindowTitle(saver.title())
@@ -123,8 +170,15 @@ class MarkerDialog(QDialog):
         self._load_button.setToolTip("Choose the image to mark up")
         qconnect(self._load_button.clicked, self._choose_image)
         toolbar.addWidget(self._load_button)
+        self._paste_button = QPushButton("Paste image")
+        self._paste_button.setToolTip(
+            "Use the image on the clipboard — a screenshot, a copied picture, or "
+            "a copied image file (Ctrl+V)"
+        )
+        qconnect(self._paste_button.clicked, self._paste_image)
+        toolbar.addWidget(self._paste_button)
         toolbar.addStretch(1)
-        self._status = QLabel("Load an image to begin.")
+        self._status = QLabel("Load or paste an image to begin.")
         self._status.setStyleSheet("color: palette(mid);")  # dim, theme-aware
         toolbar.addWidget(self._status)
         layout.addLayout(toolbar)
@@ -142,6 +196,7 @@ class MarkerDialog(QDialog):
         qconnect(self._buttons.accepted, self._save)
         qconnect(self._buttons.rejected, self.reject)
         layout.addWidget(self._buttons)
+        self._install_paste_shortcut()
         self._update_status()
         self._update_save_enabled()
         self._set_tab_order()
@@ -162,8 +217,8 @@ class MarkerDialog(QDialog):
         form.addRow("Back extra:", self._extra_edit)
 
         # The deck picker only matters when this dialog adds the note itself
-        # (CreateNoteSaver — the Tools menu and the Add-window button); the Browser
-        # edit flow reuses the note's existing deck.
+        # (CreateNoteSaver: the Tools menu and the Add-window button). The
+        # Browser edit flow reuses the note's existing deck.
         if self._saver.wants_deck:
             self._deck_combo = QComboBox()
             self._deck_combo.setToolTip("Deck the new card(s) are added to")
@@ -229,7 +284,7 @@ class MarkerDialog(QDialog):
 
         # Single mode's typing is fixed by direction, so refresh the "Type the
         # answer" box whenever the mode or direction changes: it stays visible but
-        # disabled — locked ON for single forward/both, locked OFF for single +
+        # disabled: locked ON for single forward/both, locked OFF for single +
         # reverse (all "locate it", nothing to type). Multi mode leaves it free.
         qconnect(self._mode_combo.currentIndexChanged, self._sync_type_option)
         qconnect(self._direction_combo.currentIndexChanged, self._sync_type_option)
@@ -245,7 +300,7 @@ class MarkerDialog(QDialog):
         but non-selectable: forward/both always type their 'name it' markers
         (locked ON), reverse is all 'locate it' so typing is unavailable (locked
         OFF). Multi mode restores the user's own choice and leaves the box free to
-        toggle — so a detour into single mode never rewrites their multi-mode
+        toggle, so a detour into single mode never rewrites their multi-mode
         interaction."""
         single = self._mode_combo.currentData() is CardMode.SINGLE
         reverse = self._direction_combo.currentData() is Direction.REVERSE
@@ -257,7 +312,8 @@ class MarkerDialog(QDialog):
             self._type_check.setEnabled(True)
 
     def _set_tab_order(self) -> None:
-        self.setTabOrder(self._load_button, self._header_edit)
+        self.setTabOrder(self._load_button, self._paste_button)
+        self.setTabOrder(self._paste_button, self._header_edit)
         self.setTabOrder(self._header_edit, self._extra_edit)
         prev: Any = self._extra_edit
         if self._deck_combo is not None:
@@ -267,6 +323,28 @@ class MarkerDialog(QDialog):
         self.setTabOrder(self._mode_combo, self._direction_combo)
         self.setTabOrder(self._direction_combo, self._type_check)
         self.setTabOrder(self._type_check, self._context_check)
+
+    def _install_paste_shortcut(self) -> None:
+        # Window-wide, because the natural place to press Ctrl+V is over the
+        # canvas, which is an AnkiWebView and does not surface key events to us.
+        shortcut = QShortcut(QKeySequence.StandardKey.Paste, self)
+        shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        qconnect(shortcut.activated, self._on_paste_shortcut)
+        # Held so PyQt does not garbage-collect it out from under the dialog.
+        self._paste_shortcut = shortcut
+
+    def _on_paste_shortcut(self) -> None:
+        """Ctrl+V: paste text into a text field, otherwise an image onto the canvas.
+
+        A window-wide shortcut fires ahead of the focused widget, so pasting into
+        the Header or Back-extra field would silently stop working. Hand those
+        their own paste back, and only treat Ctrl+V as an image paste elsewhere.
+        """
+        focused = self.focusWidget()
+        if isinstance(focused, (QLineEdit, QPlainTextEdit)):
+            focused.paste()
+            return
+        self._paste_image()
 
     def _populate_decks(self) -> None:
         if self._deck_combo is None:
@@ -296,10 +374,30 @@ class MarkerDialog(QDialog):
 
     def _on_web_ready(self) -> None:
         self._web_ready = True
+        # Before any image: setImage() resets the view to this level, so it has
+        # to be in place first or the first picture opens at 1x.
+        self.web.eval(f"ROEditor.setZoom({json.dumps(self._zoom.opening_level)})")
         if self._pending_display is not None:
             data_url, markers = self._pending_display
             self._pending_display = None
             self._show_image(data_url, markers)
+
+    def _on_text_focus(self, focused: bool) -> None:
+        """Step aside while a label field on the canvas has focus.
+
+        The Ctrl+V shortcut is window-wide, so it would otherwise swallow the
+        keystroke and try to paste an *image* while the user is typing a label.
+        A disabled shortcut does not consume the key at all, leaving the webview
+        to paste text into the field the way any other page would.
+        """
+        shortcut = getattr(self, "_paste_shortcut", None)
+        if shortcut is not None:
+            shortcut.setEnabled(not focused)
+
+    def _on_zoom(self, zoom: float) -> None:
+        # Only recorded here; it is written to the config once, on close, so a
+        # wheel gesture does not hammer Anki's config store.
+        self._zoom.record(zoom)
 
     def _on_count(self, count: int) -> None:
         self._marker_count = count
@@ -328,7 +426,7 @@ class MarkerDialog(QDialog):
             self._marker_count = 0
             self._update_save_enabled()
             self._status.setText(
-                "Image file not found — click “Replace image…” to reload it."
+                'Image file not found. Click "Replace image…" to reload it.'
             )
             return
         markers = [
@@ -339,17 +437,89 @@ class MarkerDialog(QDialog):
 
     def _choose_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choose image", "", _IMAGE_FILTER
+            self, "Choose image", "", IMAGE_FILE_FILTER
         )
         if not path:
             return
-        # A newly chosen image replaces whatever was there and starts fresh: the
-        # canvas resets its markers, so old positions (relative to the old image)
-        # are not carried onto a different picture.
+        self._use_new_image(path)
+
+    def _paste_image(self) -> None:
+        """Take the image on the clipboard, saving it out if it has no file yet.
+
+        Everything downstream (the media import, the note fields) works from a
+        path, so pasted bytes are written into a scratch directory and then
+        travel the same route a chosen file does.
+        """
+        # The Save freeze disables the buttons, but a shortcut still fires.
+        # Swapping the image inside the getMarkers() round-trip would pair the
+        # captured markers with a picture they were never placed on.
+        if self._saving:
+            return
+        clipboard = QGuiApplication.clipboard()
+        mime = clipboard.mimeData() if clipboard is not None else None
+        if clipboard is None or mime is None:
+            showWarning(_NO_CLIPBOARD_IMAGE)
+            return
+
+        choice = resolve_paste(_QtClipboard(clipboard, mime))
+        if choice is None:
+            showWarning(_NO_CLIPBOARD_IMAGE)
+            return
+
+        if choice.path is not None:
+            self._use_new_image(choice.path)
+            return
+        written = (
+            self._write_pasted_bytes(choice.data, choice.suffix)
+            if choice.data is not None
+            else self._write_pasted_image(choice.bitmap)
+        )
+        if written is not None:
+            self._use_new_image(written)
+
+    def _confirm_replacing_markers(self) -> bool:
+        """Ask before throwing away placed markers; True to go ahead."""
+        prompt = replace_image_prompt(self._marker_count)
+        return prompt is None or bool(askUser(prompt, defaultno=True))
+
+    def _use_new_image(self, path: str) -> None:
+        """Adopt ``path`` as the image being marked up.
+
+        A newly chosen image replaces whatever was there and starts fresh: the
+        canvas resets its markers, so old positions (relative to the old image)
+        are not carried onto a different picture. The path is adopted only once
+        the file has actually been read, so an unreadable one leaves the dialog
+        on the image it already had rather than in a half-changed state.
+
+        A replacement wipes every marker and the dialog has no undo, so this is
+        also where the user is asked to confirm losing that work; late enough
+        that we know an image is genuinely on its way in.
+        """
+        if not self._confirm_replacing_markers():
+            return
+        data_url = self._read_data_url(path)
+        if data_url is None:
+            return  # _read_data_url has already said why
         self._new_image_path = path
         self._marker_count = 0
-        self._display_from_path(path, None)
+        self._push_image(data_url, None)
         self._refresh_marker_state()
+
+    # -- writing pasted images out ---------------------------------------------
+
+    def _write_pasted_bytes(self, data: bytes, suffix: str) -> str | None:
+        try:
+            return self._scratch.write_bytes(data, suffix)
+        except OSError as exc:
+            showWarning(f"Could not save the pasted image:\n{exc}")
+            return None
+
+    def _write_pasted_image(self, image: Any) -> str | None:
+        try:
+            return self._scratch.write_via(lambda path: image.save(path, "PNG"), ".png")
+        except OSError as exc:
+            showWarning(f"Could not save the pasted image:\n{exc}")
+            return None
 
     def _display_from_path(
         self, path: str, markers: list[dict[str, Any]] | None
@@ -357,6 +527,11 @@ class MarkerDialog(QDialog):
         data_url = self._read_data_url(path)
         if data_url is None:
             return
+        self._push_image(data_url, markers)
+
+    def _push_image(
+        self, data_url: str, markers: list[dict[str, Any]] | None
+    ) -> None:
         if self._web_ready:
             self._show_image(data_url, markers)
         else:
@@ -392,7 +567,7 @@ class MarkerDialog(QDialog):
             return
         # Reading the markers is an async round-trip to the webview. Freeze the
         # image controls until it returns so the picture can't be swapped in that
-        # window — otherwise the markers we're about to capture (which belong to
+        # window; otherwise the markers we're about to capture (which belong to
         # the image shown *now*) could be paired with a different image. The
         # `_saving` lock is held from here until the persist op resolves so a
         # second Save press can't queue a duplicate note.
@@ -407,6 +582,7 @@ class MarkerDialog(QDialog):
 
     def _freeze_for_save(self, frozen: bool) -> None:
         self._load_button.setEnabled(not frozen)
+        self._paste_button.setEnabled(not frozen)
         save = self._buttons.button(QDialogButtonBox.StandardButton.Save)
         if save is not None:
             save.setEnabled(not frozen)
@@ -419,6 +595,9 @@ class MarkerDialog(QDialog):
         # Acting now would persist the note the user just cancelled and touch
         # torn-down widgets, so bail before doing anything.
         if self._closed:
+            # Nothing else will run now, so this is the last chance to clear
+            # a pasted image's scratch copy.
+            self._scratch.discard()
             return
         # Markers are now captured for the image that was shown when Save ran.
         if not self._has_image():  # image was cleared between Save and callback
@@ -487,9 +666,13 @@ class MarkerDialog(QDialog):
     def finish_saved(self, message: str) -> None:
         """Called by a saver once persistence succeeds: notify and close."""
         self._saving = False
+        # The op has finished with the file, so a pasted image's scratch copy can
+        # go now, including when the user cancelled while it was still running,
+        # which is why this precedes the `_closed` bail below.
+        self._scratch.discard()
         if self._closed:
             # The user cancelled after the save op had already committed; the note
-            # exists, but the dialog is gone — don't accept()/touch dead widgets.
+            # exists, but the dialog is gone; don't accept()/touch dead widgets.
             return
         tooltip(message)
         self.accept()
@@ -499,7 +682,9 @@ class MarkerDialog(QDialog):
         user can retry, and surface the error."""
         self._saving = False
         if self._closed:
-            return  # dialog already closed; nothing to re-enable or report
+            # Nothing to re-enable or report, but the scratch copy is now unused.
+            self._scratch.discard()
+            return
         self._abort_save()
         showWarning(message)
 
@@ -507,11 +692,11 @@ class MarkerDialog(QDialog):
 
     def _update_status(self) -> None:
         if not self._has_image():
-            self._status.setText("Load an image to begin.")
+            self._status.setText("Load or paste an image to begin.")
         else:
             self._status.setText(
-                f"{self._marker_count} marker{'s' if self._marker_count != 1 else ''}"
-                " placed — click the image to add more."
+                f"{count_phrase(self._marker_count, 'marker')}"
+                " placed — click the image to add more, scroll to zoom in."
             )
 
     def _update_save_enabled(self) -> None:
@@ -528,6 +713,11 @@ class MarkerDialog(QDialog):
         # this (Cancel/Escape during a save) bails instead of persisting the
         # cancelled note or touching torn-down widgets.
         self._closed = True
+        self._zoom.commit()
+        # A save op still running is reading the pasted file from under us, so
+        # leave it for finish_saved()/save_failed() to clear once it is done.
+        if not self._saving:
+            self._scratch.discard()
         # AnkiWebView should be torn down explicitly or Anki can leak/crash on
         # close. cleanup() exists on modern AnkiWebView; guard for safety across
         # versions so a missing method can't raise out of this close handler.

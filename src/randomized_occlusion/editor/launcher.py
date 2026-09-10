@@ -27,7 +27,7 @@ class EditorLauncher:
             return
         try:
             # The host builds the dialog only when none is open, so the Tools menu
-            # and the Add-window button — which share this launcher — can never
+            # and the Add-window button, which share this launcher, can never
             # stack two editors.
             self._host.present(
                 lambda: MarkerDialog(

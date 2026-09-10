@@ -2,7 +2,7 @@
 
 PyQt keeps no strong reference to a connected slot's receiver, so a modeless
 dialog with no other owner is garbage-collected the instant the opening method
-returns — the window silently vanishes. The launcher, the Browser integration,
+returns; the window silently vanishes. The launcher, the Browser integration,
 and the Add-window integration all previously reimplemented the same dance (hold
 a strong reference, release it when the dialog finishes). This captures it once.
 """
@@ -30,8 +30,8 @@ class ModelessDialogHost:
 
         ``build`` is a *factory* rather than a ready-made dialog, for two reasons:
 
-        * the one-at-a-time guard then lives here, so no entry point can forget it
-          — two dialogs open on the same note race each other's Save, and the
+        * the one-at-a-time guard then lives here, so no entry point can forget
+          it; two dialogs open on the same note race each other's Save, and the
           later one silently overwrites the earlier (a lost update); and
         * a dialog is never constructed only to be thrown away. A ``QDialog``
           parented to the main window outlives the discarded Python reference, so

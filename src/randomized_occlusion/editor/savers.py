@@ -1,12 +1,12 @@
 """Persistence strategies for the marking dialog.
 
-The marking dialog gathers the same thing every time — a :class:`MarkupResult`
+The marking dialog gathers the same thing every time: a :class:`MarkupResult`
 (structures, options, header/back text, and which image to use). *What happens
 to it on Save* varies, so that is a Strategy:
 
-* :class:`CreateNoteSaver` — add a brand-new note (the Tools menu and the
+* :class:`CreateNoteSaver`: add a brand-new note (the Tools menu and the
   Add-window **Occlusion** button both open this flow).
-* :class:`UpdateNoteSaver` — rewrite an existing note (Browser edit flow).
+* :class:`UpdateNoteSaver`: rewrite an existing note (Browser edit flow).
 
 Keeping this out of the dialog means the dialog has no idea how notes are stored,
 and each flow is a small, single-responsibility object.
@@ -24,6 +24,7 @@ from ..domain.structure_set import StructureSet
 from ..notetype.spec import DEFAULT_SPEC, NoteTypeSpec
 from ..ops.create_note import NoteRequest, add_randomized_occlusion_note
 from ..ops.update_note import UpdateRequest, update_randomized_occlusion_note
+from .messages import count_phrase
 
 __all__ = [
     "CreateNoteSaver",
@@ -49,7 +50,7 @@ class MarkupResult:
 
 
 def _cards(count: int) -> str:
-    return f"{count} card{'s' if count != 1 else ''}"
+    return count_phrase(count, "card")
 
 
 class NoteSaver(ABC):
