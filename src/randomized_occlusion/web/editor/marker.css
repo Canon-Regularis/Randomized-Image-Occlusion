@@ -11,6 +11,7 @@
   --ed-input-bg: #ffffff;
   --ed-invalid-bg: #fff4f4;
   --ed-hover: rgba(0, 0, 0, 0.06);
+  --ed-crosshair: rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: row;
   gap: 14px;
@@ -31,6 +32,7 @@
     --ed-input-bg: #2a2b2e;
     --ed-invalid-bg: #3a2626;
     --ed-hover: rgba(255, 255, 255, 0.08);
+    --ed-crosshair: rgba(255, 255, 255, 0.5);
   }
 }
 
@@ -45,15 +47,39 @@
   border: 1px solid var(--ed-border);
   border-radius: 8px;
   overflow: hidden;
+  /* The stage owns every pointer gesture (place, drag, pan, zoom); letting the
+     browser also pan/zoom it would fight our own transform. */
+  touch-action: none;
+}
+.ed-stage:focus { outline: none; }
+.ed-stage:focus-visible {
+  outline: 2px solid var(--ed-accent, #e53935);
+  outline-offset: -2px;
 }
 
 .ed-img {
   max-width: 100%; max-height: 70vh; display: block; cursor: crosshair;
   user-select: none; -webkit-user-drag: none;
+  /* Zoom is a transform on the image itself. `offsetLeft/offsetWidth` are
+     layout values and ignore an element's own transform, so they still report
+     the un-zoomed box the pan maths needs, while getBoundingClientRect()
+     reports the zoomed one the pointer maths needs. */
+  transform-origin: 0 0;
+  will-change: transform;
 }
+
+/* While a pan is armed (Space held) or running, the whole stage reads as
+   grabbable — including the image, whose crosshair cursor would otherwise
+   still say "click to place a marker". */
+.ed-stage.ed-pan-ready, .ed-stage.ed-pan-ready .ed-img { cursor: grab; }
+.ed-stage.ed-panning, .ed-stage.ed-panning .ed-img { cursor: grabbing; }
 
 .ed-overlay {
   position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none;
+}
+
+.ed-crosshair-line {
+  stroke: var(--ed-crosshair); stroke-width: 1; shape-rendering: crispEdges;
 }
 
 .ed-empty {
@@ -64,12 +90,18 @@
    marker group re-enables events on a transparent hit circle so it can be
    grabbed and dragged. The visible dot/label never intercept, so the whole
    grab area is the (larger) hit circle. */
-.ed-marker-hit { fill: transparent; pointer-events: all; cursor: grab; }
+.ed-marker-hit {
+  fill: transparent; pointer-events: all; cursor: grab;
+  /* Without this a touch-drag on a dot scrolls the page instead of moving the
+     marker; preventDefault() on pointerdown is too late to stop it. */
+  touch-action: none;
+}
 .ed-marker.ed-marker-dragging .ed-marker-hit { cursor: grabbing; }
 .ed-marker-dot {
   fill: var(--ed-accent, #e53935); stroke: #ffffff; stroke-width: 2; pointer-events: none;
 }
 .ed-marker-dragging .ed-marker-dot { stroke-width: 3; }
+.ed-marker-selected .ed-marker-dot { stroke: var(--ed-fg); stroke-width: 3; }
 .ed-marker-label {
   fill: #ffffff; font-size: 12px; font-weight: 700; font-family: inherit; pointer-events: none;
 }
@@ -78,6 +110,27 @@
   flex: 0 0 250px; display: flex; flex-direction: column; gap: 10px; overflow: hidden;
 }
 .ed-panel-title { font-weight: 700; font-size: 15px; }
+
+/* Docked in the panel rather than floated over the stage: a floating bar would
+   permanently cover a corner of the image, so no marker could be placed there
+   and a prefilled one underneath it could not be grabbed. */
+.ed-zoombar { display: flex; align-items: center; gap: 6px; }
+.ed-zoombar button {
+  font: inherit; color: var(--ed-fg); background: var(--ed-input-bg);
+  border: 1px solid var(--ed-border); border-radius: 6px; cursor: pointer;
+  padding: 0 8px; height: 28px; line-height: 1;
+}
+.ed-zoombar button:hover:not(:disabled) { background: var(--ed-hover); }
+.ed-zoombar button:disabled { opacity: 0.45; cursor: default; }
+.ed-zoombar button:focus-visible {
+  outline: 2px solid var(--ed-accent, #e53935); outline-offset: 1px;
+}
+.ed-zoom-btn { flex: 0 0 28px; width: 28px; padding: 0; font-size: 16px; font-weight: 700; }
+.ed-zoom-level {
+  flex: 1 1 auto; min-width: 0; text-align: center; color: var(--ed-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ed-zoom-fit { flex: 0 0 auto; }
 
 .ed-list { flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .ed-empty-row { color: var(--ed-muted); font-size: 13px; font-style: italic; padding: 6px 2px; }

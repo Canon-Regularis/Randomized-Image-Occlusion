@@ -1,15 +1,30 @@
 <div id="ed-root">
-  <div id="ed-stage" class="ed-stage">
-    <div id="ed-empty" class="ed-empty">Load an image, then click on each structure to drop a numbered marker.</div>
+  <div id="ed-stage" class="ed-stage" tabindex="0">
+    <div id="ed-empty" class="ed-empty">Load or paste an image, then click on each structure to drop a numbered marker.</div>
     <img id="ed-img" class="ed-img" alt="" draggable="false" style="display:none" />
-    <svg id="ed-overlay" class="ed-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+    <!-- Two groups, cleared independently: the crosshair follows the pointer on
+         every move, while the markers only change when a marker does. -->
+    <svg id="ed-overlay" class="ed-overlay" xmlns="http://www.w3.org/2000/svg">
+      <g id="ed-crosshair"></g>
+      <g id="ed-markers"></g>
+    </svg>
   </div>
   <div id="ed-panel" class="ed-panel">
+    <div id="ed-zoombar" class="ed-zoombar">
+      <button id="ed-zoom-out" class="ed-zoom-btn" type="button" title="Zoom out (-)" aria-label="Zoom out">&#8722;</button>
+      <span id="ed-zoom-level" class="ed-zoom-level" role="status" aria-live="polite" aria-label="Zoom level">100%</span>
+      <button id="ed-zoom-in" class="ed-zoom-btn" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
+      <button id="ed-zoom-fit" class="ed-zoom-fit" type="button" title="Fit the whole image (0)">Fit</button>
+    </div>
     <div class="ed-panel-title">Structures</div>
     <div id="ed-list" class="ed-list"></div>
     <div id="ed-hint" class="ed-hint">
       Click the image to add a marker; drag a marker to reposition it. Each
       marker becomes one card.
+      <br /><br />
+      Scroll to zoom in for finer placement. Pan with the middle mouse button, or
+      hold Space and drag. Click a marker, then use the arrow keys to nudge it
+      (hold Shift for bigger steps).
     </div>
   </div>
 </div>
