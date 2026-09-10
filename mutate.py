@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parent
 # --------------------------------------------------------------------------- #
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Target:
     """A source file, and the suites that are supposed to be guarding it."""
 
@@ -95,7 +95,7 @@ GATEWAYS = Target("src/randomized_occlusion/collection/gateways.py", ("tests/tes
 BUILD = Target("build.py", ("tests/test_build.py",))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Mutation:
     """One deliberate break, and what is expected to come of it.
 
@@ -584,7 +584,7 @@ def _child_env() -> dict[str, str]:
 # --------------------------------------------------------------------------- #
 
 
-@dataclass(slots=True)
+@dataclass
 class Report:
     """What the run found, and whether that matches what the catalogue claims."""
 
@@ -667,8 +667,13 @@ def _js_parse_failures(sources: list[str]) -> list[tuple[int, str]]:
         return []
     completed = subprocess.run(
         [_node(), "-e", _JS_PARSE],
+        cwd=ROOT,
         input=json.dumps(sources).encode("utf-8"),
         capture_output=True,
+        # The same scrubbing run() does. Without it NODE_OPTIONS could inject a
+        # --require into the check that validates the campaign, which is the one
+        # place the hardening had a hole.
+        env=_child_env(),
     )
     if completed.returncode != 0:
         raise RuntimeError(
