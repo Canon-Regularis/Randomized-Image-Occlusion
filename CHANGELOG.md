@@ -5,6 +5,103 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0]
+
+### Added
+- **Paste an image straight from the clipboard**, instead of having to save it to
+  a file first. Press **Ctrl+V** or click the new **Paste image** button: a
+  screenshot, a picture copied from a web page, or an image file copied in your
+  file manager all work, when creating a card and when editing one. Loading from
+  a file works exactly as before, and Ctrl+V still pastes *text* wherever you are
+  typing — including the label fields beside the image — so it only reaches for a
+  picture when you are not in a text field.
+  - A copied *file* is used as-is, keeping its own name and bytes.
+  - Otherwise the format the source published is preferred over a re-encode, so a
+    copied animated GIF stays animated and an SVG stays vector.
+  - A screenshot, which the clipboard only offers as a bitmap, is saved as a PNG.
+- **Zoom the image while placing markers.** Scroll over the picture to zoom in
+  around the pointer, so a structure that was a few pixels across at fit size can
+  be marked precisely. There are **-**, **+** and **Fit** buttons beside the
+  structure list, and `+`, `-` and `0` do the same from the keyboard.
+- **Pan a zoomed image** with the middle mouse button, the right mouse button, or
+  by holding **Space** and dragging. Clicking with the left button still places a
+  marker at every zoom level, so panning can never drop one by accident.
+- **Nudge a marker with the arrow keys.** Click a marker to select it, then use
+  the arrow keys to move it one screen pixel at a time (hold **Shift** for ten).
+  Zoomed in to 8x that is an eighth of an image pixel - finer than any click.
+- **Crosshair guides** follow the pointer across the image, so at high zoom the
+  exact spot a marker will land is unambiguous.
+- The zoom level is remembered between sessions, in the new `editor_zoom`
+  config key, and applies to both creating and editing cards.
+
+### Changed
+- Loading or pasting a new image now asks for confirmation first if you have
+  already placed markers, since replacing the picture clears them and the editor
+  has no undo. Previously a stray **Ctrl+V** could discard the whole labelling
+  silently.
+- The reviewer is now covered against what it actually draws, not just that it
+  drew something. Arrows are checked to end on their structure and to start on
+  the prompt box's border, dots to sit on the structures they mark, and the
+  randomised placement to vary between reviews and stay put within one. Several
+  earlier tests could not tell a working card from one that drew every arrow at
+  the top-left corner, or none at all.
+- The editor canvas and the paste flow are now covered end-to-end by automated
+  tests — marker placement and dragging, zoom and pan, the label list, the
+  keyboard shortcuts, and every decision about what to take off the clipboard.
+  The suites are checked by mutation testing — `python mutate.py` breaks each
+  piece of logic in turn and fails if no test notices — so they go red when the
+  behaviour they describe changes, rather than merely running the code. The
+  catalogue runs in CI and is itself checked on every ordinary test run, so an
+  entry cannot stop matching the code it is meant to be guarding.
+- The paste flow's decisions — which clipboard source to prefer, where a pasted
+  image is written, when the zoom level is saved, and what to warn about before
+  replacing an image — moved out of the Qt dialog into plain modules. Anki's
+  libraries are not available to the test suite, so logic left inside a dialog
+  cannot be tested at all; the same split already existed for the note savers
+  and the config service.
+
+### Fixed
+- **Repositioning a marker no longer swallows your next click.** After dragging a
+  marker (or panning with the middle/right button), the next structure you tried
+  to mark was silently ignored and you had to click twice. The editor's "ignore
+  the click that follows a drag" flag was being left set with nothing able to
+  clear it; a new press now always clears it.
+- A hand tremor during a click is no longer treated as a drag, so a press that
+  moves a pixel or two can no longer eat the click that follows it.
+- Switching to another application while holding **Space** no longer leaves the
+  editor stuck in panning mode. Previously the key release went to the other
+  application, and on returning, dragging a marker moved the picture instead of
+  the marker until Space was pressed and released again.
+- Loading or pasting a replacement image now keeps the zoom you are working at.
+  It used to jump back to the level the editor opened with — so zooming in and
+  replacing the image lost your magnification, and pressing **Fit** before
+  replacing it was undone.
+- Marker positions on the canvas are now measured the same way whether they are
+  being drawn or being read from a click, removing a sub-pixel drift between the
+  two. The reviewer had already been fixed this way; the editor had not.
+- A drag whose mouse release goes missing (the pointer leaves the window at the
+  wrong moment) no longer strands the editor in a state where no further marker
+  can be dragged.
+- Replacing the image while a card is being saved is no longer possible via
+  **Ctrl+V**; the shortcut is now frozen along with the buttons, so the markers
+  being saved always belong to the picture they were placed on.
+- A failed image paste can no longer leave the previous pasted image truncated:
+  the new file is written alongside and swapped in only once it is complete.
+- **The Browse window sorts on the right field again after a repair.** A note
+  type records its sort column as a *position* in its field list, so whenever the
+  **Header** field had to be added back — because an older version of the add-on
+  created the note type without it, or because it was deleted by hand — it
+  returned at the end of the list while the recorded position stayed where it
+  was. Browse then sorted on whatever had moved into that slot, showing the
+  base64 payload instead of your headers. The add-on now checks the sort field on
+  every start and puts it right.
+- **Changing one setting no longer freezes all the others.** Saving a deck (or,
+  now, a zoom level) wrote the entire configuration back to your profile,
+  including every key you had never touched. Those keys were then pinned to
+  whatever the default happened to be that day, so later improvements to a
+  default silently never reached you. Only values you have actually changed are
+  stored now.
+
 ## [1.1.1]
 
 ### Fixed
@@ -133,6 +230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add-on required on the device, since the renderer is baked into the card.
 - Configurable colours, minimum arrow length, and default study mode.
 
+[1.2.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.2.0
 [1.1.1]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.0.0
