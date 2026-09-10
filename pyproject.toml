@@ -1,9 +1,21 @@
+[build-system]
+# Stated rather than left to pip's legacy fallback, which is what an absent
+# [build-system] table silently selects for `pip install -e .`.
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "randomized-image-occlusion"
-version = "1.1.1"
+version = "1.2.0"
 description = "Anki add-on: image occlusion that randomises label placement each review."
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.9, because that is what Anki bundles. Anki shipped Python 3.9.18 from 23.10
+# (this add-on's min_point_version) until 25.07, which was the first release on
+# 3.13. Anything newer than 3.9 in the shipped package makes the add-on fail to
+# LOAD on every Anki in between; `@dataclass(slots=True)` did exactly that. The
+# CI `check` job runs 3.9 and tests/test_python_floor.py imports every module, so
+# a too-new construct is caught rather than shipped.
+requires-python = ">=3.9"
 license = { file = "LICENSE" }
 
 # This project is distributed as an Anki add-on (.ankiaddon), not a PyPI wheel.
@@ -23,7 +35,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py39"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -37,6 +49,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "mutate.py" = ["E501"]
 
 [tool.mypy]
+# 3.10, not the 3.9 floor in `requires-python`: mypy follows Python's EOL and
+# refuses to target 3.9 ("must be 3.10 or higher"). The floor is enforced instead
+# by the CI `check` job, which runs the suite on a real 3.9 interpreter, and by
+# tests/test_python_floor.py, which imports every shipped module there.
 python_version = "3.10"
 files = ["src"]
 ignore_missing_imports = true   # aqt/anki are not installed in CI

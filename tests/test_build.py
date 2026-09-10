@@ -192,6 +192,19 @@ def test_read_version_matches_version_py():
     assert declared.count(".") == 2, declared
 
 
+def test_pyproject_version_matches_version_py():
+    # Nothing else pins this. The shipped manifest is stamped from _version.py, so
+    # pyproject.toml can drift unnoticed, and then the editable install CI builds
+    # registers a different version from the one the add-on advertises.
+    #
+    # Parsed with a regex rather than tomllib, which does not exist on the 3.9
+    # floor this project supports.
+    text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+    assert match is not None, "pyproject.toml no longer declares a version"
+    assert match.group(1) == _declared_version()
+
+
 def test_manifest_bytes_stamps_the_given_version():
     stamped = json.loads(build._manifest_bytes(build.PACKAGE_DIR / "manifest.json", "9.9.9"))
     assert stamped["human_version"] == "9.9.9"
