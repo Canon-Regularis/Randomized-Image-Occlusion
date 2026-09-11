@@ -319,6 +319,48 @@ function buildCard(opts) {
   }
 
   const noop = () => {};
+
+  // A controllable clock. render.js calls run() as its script loads, and run()
+  // does everything through setTimeout: the once-per-show guard, the bounded
+  // retry for an image that is not laid out yet, and the resize re-render. With
+  // setTimeout noop'd none of that could ever execute, so the whole bootstrap
+  // was unreachable to every test. `timers: "manual"` queues the callbacks
+  // instead, and the card exposes flushTimers()/fire() to step them.
+  const manual = o.timers === "manual";
+  const queued = [];
+  const listeners = new Map();
+  const setTimeoutImpl = manual
+    ? (fn) => {
+        queued.push(fn);
+        return queued.length;
+      }
+    : noop;
+  const addEventListenerImpl = manual
+    ? (type, fn) => {
+        if (!listeners.has(type)) listeners.set(type, []);
+        listeners.get(type).push(fn);
+      }
+    : noop;
+
+  /**
+   * Run queued callbacks until none are left, or `rounds` passes have gone by.
+   *
+   * Bounded on purpose: run()'s retry re-arms itself, so an image that never
+   * gains a size would spin here exactly as it would in a browser. The cap is
+   * what lets a test assert the retry gives up.
+   */
+  function flushTimers(rounds = 200) {
+    let ran = 0;
+    while (queued.length && ran < rounds) {
+      const batch = queued.splice(0, queued.length);
+      for (const fn of batch) {
+        fn();
+        ran += 1;
+        if (ran >= rounds) break;
+      }
+    }
+    return ran;
+  }
   const document = {
     getElementById: (id) => ids.get(id) || null,
     querySelector: (sel) => {
@@ -330,10 +372,11 @@ function buildCard(opts) {
     createElementNS: (ns, t) => el(t, ns),
   };
   const window = {
-    // `noop` setTimeout keeps render.js's own `run()` bootstrap from firing, so a
-    // test's explicit `render(mint)` call is the only render that happens.
-    addEventListener: noop,
-    setTimeout: noop,
+    // Without `timers: "manual"` these stay noops, so render.js's own run()
+    // bootstrap never fires and a test's explicit render(mint) call is the only
+    // render that happens.
+    addEventListener: addEventListenerImpl,
+    setTimeout: setTimeoutImpl,
     getComputedStyle: () => ({ fontSize: "18px" }),
     __roSeedFallback: seededFallback,
     // Two different degraded stores, because render.js handles them on two
@@ -358,7 +401,15 @@ function buildCard(opts) {
     },
   };
 
-  const sandbox = { window, document, atob, TextDecoder, Uint8Array, setTimeout: noop, console };
+  const sandbox = {
+    window,
+    document,
+    atob,
+    TextDecoder,
+    Uint8Array,
+    setTimeout: setTimeoutImpl,
+    console,
+  };
   const api = runRenderJs(sandbox);
 
   return {
@@ -368,6 +419,14 @@ function buildCard(opts) {
     typeBox,
     internals: api._internals,
     render: (mint) => api.render(mint),
+    img,
+    flushTimers,
+    /** Re-run the bootstrap, as showing another card in the same webview does. */
+    run: () => api.run(),
+    /** Fire a window event render.js has subscribed to (only with manual timers). */
+    fire: (type) => (listeners.get(type) || []).forEach((fn) => fn()),
+    listenerCount: (type) => (listeners.get(type) || []).length,
+    pendingTimers: () => queued.length,
   };
 }
 
@@ -397,6 +456,9 @@ function boxesOf(svg) {
       cy: y + h / 2,
       w,
       h,
+      // The grading colour, which drawBox puts on the RECT rather than the
+      // group: "ro-box-rect ro-correct".
+      classes: rect ? [...rect._classes] : [],
     });
   }
   return out;

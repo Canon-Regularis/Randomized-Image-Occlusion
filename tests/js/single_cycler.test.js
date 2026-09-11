@@ -12,7 +12,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildCard, boxesOf } = require("./dom.js");
+const { buildCard, boxesOf, dotsOf, arrowsOf } = require("./dom.js");
+
+/** The box currently showing `text`, or undefined. `c` is an openCycler result. */
+const boxShowing = (c, text) => boxesOf(c.card.svg).find((b) => b.text === text);
 
 const ALL = [
   { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
@@ -90,6 +93,158 @@ for (const count of [1, 2, 3]) {
     }
   }
 }
+
+test("no step of a single-card cycle identifies its answer by elimination", () => {
+  // The accumulating answer key arrows every structure already answered, so a
+  // structure with a dot and no arrow is one still to come. On the LAST marker
+  // there are none still to come, leaving exactly one un-arrowed dot: the
+  // answer. Every step is checked, not just the last, so the property holds for
+  // the whole cycle.
+  for (const direction of ["forward", "reverse", "both"]) {
+    const c = openCycler(ALL, direction, "reveal", SEED);
+    for (let step = 0; step < ALL.length; step++) {
+      const structure = ALL[c.order[step]];
+      const target = { x: structure.x * 800, y: structure.y * 600 };
+      const dots = dotsOf(c.card.svg);
+      const arrows = arrowsOf(c.card.svg);
+      const near = (a, b) => Math.abs(a - b) <= 1e-6;
+      const unarrowed = dots.filter(
+        (d) => !arrows.some((a) => near(a.x2, d.x) && near(a.y2, d.y)),
+      );
+      const identifies =
+        unarrowed.length === 1 &&
+        near(unarrowed[0].x, target.x) &&
+        near(unarrowed[0].y, target.y);
+      assert.ok(
+        !identifies,
+        `${direction}, step ${step + 1}/${ALL.length}: one un-arrowed dot and ` +
+          `it is the answer, so the marker can be located by elimination`,
+      );
+      c.button.dispatch("click"); // reveal / locate
+      c.button.dispatch("click"); // next
+    }
+  }
+});
+
+test("a question side never shows the label of the marker being asked about", () => {
+  // The single mutation that matters most in this file: swapping cfg.promptText
+  // for the structure's own label in paint()'s forward branch prints the answer
+  // on the question side, and every other test in this suite still passes.
+  for (const direction of ["forward", "reverse", "both"]) {
+    const c = openCycler(ALL, direction, "reveal", SEED);
+    for (let step = 0; step < ALL.length; step++) {
+      const structure = ALL[c.order[step]];
+      const forward = c.forwards[step];
+
+      if (forward) {
+        // "name this one": the box must show the prompt, never the answer.
+        assert.ok(boxShowing(c, "?"),
+          `${direction} step ${step + 1}: the prompt box is missing`);
+        assert.equal(boxShowing(c, structure.label), undefined,
+          `${direction} step ${step + 1}: the question side prints "${structure.label}", ` +
+          "which is the answer");
+      } else {
+        // "locate this one": the label IS the question, and no arrow may point
+        // at it or there would be nothing left to find.
+        const box = boxShowing(c, structure.label);
+        assert.ok(box, `${direction} step ${step + 1}: the label to locate is missing`);
+        const target = { x: structure.x * 800, y: structure.y * 600 };
+        const near = (a, b) => Math.abs(a - b) <= 1e-6;
+        assert.ok(
+          !arrowsOf(c.card.svg).some((a) => near(a.x2, target.x) && near(a.y2, target.y)),
+          `${direction} step ${step + 1}: an arrow points straight at the marker ` +
+          "the learner is being asked to find",
+        );
+      }
+      c.button.dispatch("click"); // reveal / locate
+      c.button.dispatch("click"); // next
+    }
+  }
+});
+
+test("revealing a marker shows that marker's label and points at it", () => {
+  // Every step, not just the first: taking the current structure from
+  // layout.order[0] instead of layout.order[state.idx] would keep re-asking
+  // about marker one while the counter advanced.
+  const c = openCycler(ALL, "forward", "reveal", SEED);
+  const near = (a, b) => Math.abs(a - b) <= 1e-6;
+  for (let step = 0; step < ALL.length; step++) {
+    const structure = ALL[c.order[step]];
+    assert.equal(boxShowing(c, structure.label), undefined,
+      `step ${step + 1}: the label is showing before it was revealed`);
+
+    c.button.dispatch("click"); // reveal
+
+    assert.ok(boxShowing(c, structure.label),
+      `step ${step + 1}: revealing did not show ${structure.label}`);
+    const target = { x: structure.x * 800, y: structure.y * 600 };
+    assert.ok(arrowsOf(c.card.svg).some((a) => near(a.x2, target.x) && near(a.y2, target.y)),
+      `step ${step + 1}: no arrow points at ${structure.label}`);
+    c.button.dispatch("click"); // next
+  }
+});
+
+test("the answer key accumulates one box per answered marker", () => {
+  // Each answered structure stays on screen, drawn from its OWN entry in the
+  // cycle order: drawing layout.order[0] every time would repeat one structure.
+  const c = openCycler(ALL, "forward", "reveal", SEED);
+  for (let step = 0; step < ALL.length; step++) {
+    // Spread into this realm first: `order` comes from the vm sandbox, and
+    // assert.deepEqual rejects an array whose prototype is another realm's.
+    const answered = [...c.order].slice(0, step).map((i) => ALL[i].label).sort();
+    const shown = boxesOf(c.card.svg)
+      .map((b) => b.text)
+      .filter((text) => text !== "?")
+      .sort();
+    assert.deepEqual(shown, answered,
+      `step ${step + 1}: the answer key should hold exactly the markers already answered`);
+    c.button.dispatch("click");
+    c.button.dispatch("click");
+  }
+});
+
+test("each answered marker keeps its own grading colour", () => {
+  // Deliberately mixed: answer the first right and the second wrong. Colouring
+  // the whole key from results[0] would paint them the same, and a single
+  // right-or-wrong run could not tell the difference.
+  const c = openCycler(ALL, "forward", "type", SEED);
+  const expected = new Map();
+  for (const [step, correct] of [[0, true], [1, false], [2, true]]) {
+    const structure = ALL[c.order[step]];
+    c.input.value = correct ? structure.label : "definitely not it";
+    c.button.dispatch("click"); // grade
+
+    const box = boxShowing(c, structure.label);
+    assert.ok(box, `step ${step + 1}: the label is shown once graded`);
+    const want = correct ? "ro-correct" : "ro-wrong";
+    assert.ok(box.classes.includes(want),
+      `step ${step + 1}: expected ${want}, got ${JSON.stringify(box.classes)}`);
+    expected.set(structure.label, want);
+    c.button.dispatch("click"); // next
+  }
+
+  // And the colours stay put as the key accumulates.
+  for (const box of boxesOf(c.card.svg)) {
+    const want = expected.get(box.text);
+    if (want === undefined) continue;
+    assert.ok(box.classes.includes(want),
+      `${box.text} lost its ${want} marking as the key grew`);
+  }
+});
+
+test("a repaint keeps the cycler's progress", () => {
+  // The controller is built once and reused. Rebuilding it on every paint would
+  // reset the review to marker 1 whenever the window is resized.
+  const c = openCycler(ALL, "forward", "reveal", SEED);
+  c.button.dispatch("click");
+  c.button.dispatch("click"); // one marker answered
+
+  const controller = c.bar.__roController;
+  c.card.render(false); // the resize path
+
+  assert.equal(c.bar.__roController, controller, "the controller was rebuilt");
+  assert.equal(c.progress.textContent, `2 / ${ALL.length}`, "progress was lost");
+});
 
 test("a wrong typed answer is graded wrong and still reveals the label", () => {
   const c = openCycler(ALL, "forward", "type", SEED);

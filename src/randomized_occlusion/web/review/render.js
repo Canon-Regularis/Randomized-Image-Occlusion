@@ -108,6 +108,21 @@
     return window.__roSeedFallback || null;
   }
 
+  /**
+   * Whether session storage really holds the seed.
+   *
+   * Deliberately ignores the in-memory mirror: the mirror is what makes a
+   * REPAINT reproducible, but it does not survive a page load, so it says
+   * nothing about whether the answer side will be able to recover this seed.
+   */
+  function seedPersisted() {
+    try {
+      return window.sessionStorage.getItem(SEED_KEY) !== null;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function writeSeed(value) {
     // Always keep the in-memory fallback in sync so a later read recovers the
     // seed even if sessionStorage is unavailable or full; then best-effort persist.
@@ -277,7 +292,10 @@
     // Scale (dx, dy) so it just reaches the rectangle border.
     var scaleX = dx !== 0 ? halfW / Math.abs(dx) : Infinity;
     var scaleY = dy !== 0 ? halfH / Math.abs(dy) : Infinity;
-    var scale = Math.min(scaleX, scaleY);
+    // Capped at 1: for a target INSIDE the box both scales exceed 1, which put
+    // the tail beyond the target and drew the arrow backwards out of the far
+    // border, hidden underneath the box.
+    var scale = Math.min(1, Math.min(scaleX, scaleY));
     return { x: cx + dx * scale, y: cy + dy * scale };
   }
 
@@ -414,6 +432,15 @@
     // Nudge the centre inward using the LABEL's box (so front/back match), then
     // size the box for the actually-shown text at that clamped centre.
     var clampBox = sizeBox(String(clampText != null ? clampText : text), maxTextW, lineHeight, measure);
+    // A question side may show promptText instead of the label, and prompt_text
+    // is user-configurable, so a prompt wider than the label overflowed a clamp
+    // sized only for the label and hung off the image. Widen the clamp to cover
+    // both. Applied to every box, not just the ones that flip, because the clamp
+    // has to come out identical on the question and answer sides or the box
+    // would move when the card is flipped.
+    var promptBox = sizeBox(String(cfg.promptText), maxTextW, lineHeight, measure);
+    if (promptBox.w > clampBox.w) clampBox.w = promptBox.w;
+    if (promptBox.h > clampBox.h) clampBox.h = promptBox.h;
     var cx = center.x;
     var cy = center.y;
     if (stageW > 0) cx = clampBox.w >= stageW ? stageW / 2 : clamp(center.x, clampBox.w / 2, stageW - clampBox.w / 2);
@@ -675,7 +702,18 @@
       if (!stage) return;
       var layout = computeSingleLayout(seed, stage, structures, cfg);
 
-      drawDots(svg, layout.targets);
+      // Only structures that end up with an arrow are dotted. Dotting every
+      // structure left the ones still to come with no arrow pointing at them,
+      // and on the final marker there are none still to come, so exactly one
+      // un-arrowed dot remained: the answer.
+      var ci = state.idx < n ? layout.order[state.idx] : -1;
+      var currentArrowed = ci >= 0 && (state.revealed || currentForward());
+      var dotted = [];
+      for (var d = 0; d < state.idx && d < n; d++) {
+        dotted.push(layout.targets[layout.order[d]]);
+      }
+      if (currentArrowed) dotted.push(layout.targets[ci]);
+      drawDots(svg, dotted);
 
       // Already-answered structures stay revealed (accumulating answer key).
       for (var p = 0; p < state.idx && p < n; p++) {
@@ -686,7 +724,6 @@
       // Backward: show the label with NO arrow (you locate it), revealing the
       // arrow to the structure on answer.
       if (state.idx < n) {
-        var ci = layout.order[state.idx];
         if (state.revealed) {
           drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, boxClass(state.results[state.idx]));
         } else if (currentForward()) {
@@ -902,6 +939,17 @@
     } else if (mint) {
       seed = randomUint32();
       writeSeed(seed);
+      // If storage refused the write, the answer side opens on a fresh page with
+      // no mirror and falls back to the deterministic hash below - laying the
+      // card out differently from the question side, and on a "both" card
+      // flipping its direction between the two. A seed only one side can see is
+      // worse than a repeatable one, so fall back to the value both sides can
+      // compute. The cost is that this card stops re-randomising while storage
+      // stays broken.
+      if (!seedPersisted()) {
+        seed = hashString("" + activeOrdinal + structures.length);
+        writeSeed(seed); // keep the in-memory mirror on the value actually used
+      }
     } else {
       var reused = readSeed();
       seed = reused !== null ? parseInt(reused, 10) >>> 0 : randomUint32();
@@ -961,12 +1009,22 @@
 
     if (contextLabels) {
       var centers = placeCenters(rng, stage, targets, cfg);
-      drawDots(svg, targets);
+      // The same dot rule as the single-box path below: whether a structure is
+      // dotted is a config decision, and drawing them unconditionally here meant
+      // showTargetDot and showDecoyDots were simply ignored in context mode.
+      if (cfg.showDecoyDots) {
+        drawDots(svg, targets);
+      } else if (targetDotVisible(cfg, isReverse, back)) {
+        drawDot(svg, active);
+      }
       for (var b = 0; b < targets.length; b++) {
         if (b === activeIndex) {
           drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow, undefined, targets[b].label);
         } else {
-          drawBox(svg, centers[b], targets[b], targets[b].label, cfg, true);
+          // activeArrow, not `true`. On a reverse question side the active box
+          // withholds its arrow, so arrowing every OTHER box left exactly one
+          // dot with nothing pointing at it, and that dot was the answer.
+          drawBox(svg, centers[b], targets[b], targets[b].label, cfg, activeArrow);
         }
       }
     } else {
@@ -990,7 +1048,12 @@
   function run(attempt) {
     attempt = attempt || 0;
     var img = getImage();
-    if (!img) {
+    // A laid-out image is one that HAS a box. render() bails on a zero-sized
+    // image saying a later pass will retry, but the `ran` guard below means
+    // there is no later pass - only a resize ever recovered it. Treat "no size
+    // yet" the same as "no element yet" and retry here, where the retry lives.
+    var box = img ? img.getBoundingClientRect() : null;
+    if (!img || !box.width || !box.height) {
       // DOM/image may not be ready yet (parse-mode clients); retry a bounded
       // number of times, then give up; a note with an empty Image field must
       // not spin setTimeout forever and peg the CPU.

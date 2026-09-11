@@ -402,6 +402,267 @@ test("a legacy bare-array payload still renders", () => {
   assert.equal(dotsOf(card.svg).length, STRUCTURES.length, "and its dots");
 });
 
+// ---- the bootstrap ----------------------------------------------------------
+//
+// render.js calls run() as it loads, and run() does everything through
+// setTimeout: the once-per-show guard, the bounded retry for an image that is
+// not laid out yet, and the resize re-render. Every other test in this file
+// calls render(mint) directly with timers noop'd, so none of that was ever
+// executed. `timers: "manual"` queues the callbacks for flushTimers() to step.
+
+const ONE = [{ ord: 1, x: 0.4, y: 0.4, label: "Aorta" }];
+
+test("the bootstrap renders the card and mints a seed", () => {
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  assert.equal(boxesOf(card.svg).length, 0, "nothing is drawn before the clock runs");
+
+  card.flushTimers();
+
+  assert.equal(boxesOf(card.svg).length, 1, "the bootstrap never rendered");
+  assert.ok(SEED_KEY in card.store, "a question view must mint and store a seed");
+});
+
+test("the bootstrap renders exactly once per show", () => {
+  // load, error and a safety-net timer can all fire. Without the `ran` guard a
+  // second pass would mint a fresh seed and the box would jump mid-review.
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  card.flushTimers();
+  const first = boxesOf(card.svg)[0];
+  const seed = card.store[SEED_KEY];
+
+  card.img.dispatch("load"); // a late load event for the same show
+  card.flushTimers();
+
+  assert.equal(boxesOf(card.svg).length, 1, "the card was drawn twice over");
+  const second = boxesOf(card.svg)[0];
+  assert.ok(near(second.cx, first.cx, 1e-9) && near(second.cy, first.cy, 1e-9),
+    "the box moved on a second bootstrap pass");
+  assert.equal(card.store[SEED_KEY], seed, "the seed was re-minted");
+});
+
+test("an image with no size yet is retried, not abandoned", () => {
+  // render() bails on a zero-sized image saying a later pass will retry, but the
+  // once-per-show guard means there is no later pass: before this, only a resize
+  // ever recovered such a card and it otherwise stayed blank for the review.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  card.flushTimers(5);
+  assert.equal(boxesOf(card.svg).length, 0, "nothing can be drawn without a size");
+  assert.ok(card.pendingTimers() > 0, "the retry gave up while the image had no size");
+
+  card.img._rect = { width: 800, height: 600, left: 0, top: 0 };
+  card.flushTimers();
+
+  assert.equal(boxesOf(card.svg).length, 1, "the card never recovered once laid out");
+});
+
+test("the retry for an image that never appears is bounded", () => {
+  // A note with an empty Image field must not spin setTimeout forever.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  const ran = card.flushTimers(500);
+  assert.ok(ran < 500, `the retry ran ${ran} times without stopping`);
+  assert.equal(card.pendingTimers(), 0, "the retry is still armed after giving up");
+});
+
+test("a resize repaints without re-randomising", () => {
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  card.flushTimers();
+  const before = boxesOf(card.svg)[0];
+  const seed = card.store[SEED_KEY];
+
+  card.fire("resize");
+  card.flushTimers();
+
+  const after = boxesOf(card.svg)[0];
+  assert.ok(near(after.cx, before.cx, 1e-9) && near(after.cy, before.cy, 1e-9),
+    "the box moved on resize, so the layout was re-randomised mid-review");
+  assert.equal(card.store[SEED_KEY], seed, "the resize re-minted the seed");
+});
+
+test("the resize listener is bound once, not once per card shown", () => {
+  // The guard is on `window`, and Anki's reviewer reuses ONE webview across
+  // cards, so a leak here accumulates a listener per card reviewed and every
+  // resize eventually triggers a storm of repaints.
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  card.flushTimers();
+  assert.equal(card.listenerCount("resize"), 1);
+
+  for (let show = 0; show < 4; show += 1) {
+    card.run(); // the next card, same webview
+    card.flushTimers();
+  }
+  assert.equal(card.listenerCount("resize"), 1,
+    "a listener was added per card shown");
+});
+
+test("a new question view re-randomises rather than reusing the stored seed", () => {
+  // The whole premise: the box must land somewhere new every review. A card
+  // arrives with the PREVIOUS card's seed still in session storage, so the
+  // bootstrap has to mint over it; reusing it would pin the layout for good.
+  const card = buildCard({ structures: ONE, timers: "manual", seed: 4242, config: DOTS_ON });
+  assert.equal(card.store[SEED_KEY], "4242", "the fixture seed should be pre-stored");
+
+  card.flushTimers();
+
+  assert.notEqual(card.store[SEED_KEY], "4242",
+    "the question view reused the stored seed instead of minting a new one");
+});
+
+// ---- the elimination leak ---------------------------------------------------
+
+/**
+ * A dot that nothing points at can be identified by elimination. If exactly one
+ * dot is un-arrowed and it sits on the structure being asked about, the question
+ * side has answered itself.
+ *
+ * This is the property the whole add-on exists to provide, so it is asserted
+ * over every configuration rather than over the cases that happened to be found
+ * broken. Reverse + context labels leaked exactly this way, undetected, because
+ * no test ever rendered that pair.
+ */
+function assertNoEliminationLeak(card, structure, message) {
+  const dots = dotsOf(card.svg);
+  const arrows = arrowsOf(card.svg);
+  const target = project(structure);
+  const unarrowed = dots.filter(
+    (d) => !arrows.some((a) => near(a.x2, d.x, 1e-6) && near(a.y2, d.y, 1e-6)),
+  );
+  const identifies =
+    unarrowed.length === 1 &&
+    near(unarrowed[0].x, target.x, 1e-6) &&
+    near(unarrowed[0].y, target.y, 1e-6);
+  assert.ok(
+    !identifies,
+    `${message}: exactly one dot has no arrow pointing at it and it is the ` +
+      `answer at (${target.x}, ${target.y}), so the question side can be ` +
+      `solved by elimination`,
+  );
+}
+
+test("no question side identifies its own answer by elimination", () => {
+  for (const contextLabels of [false, true]) {
+    for (const direction of ["forward", "reverse", "both"]) {
+      for (const seed of [1, 7, 42, 1234]) {
+        for (const activeOrdinal of [1, 2, 3, 4]) {
+          const card = side({ direction, contextLabels, activeOrdinal, seed });
+          assertNoEliminationLeak(
+            card,
+            STRUCTURES[activeOrdinal - 1],
+            `${direction}, contextLabels=${contextLabels}, ordinal ` +
+              `${activeOrdinal}, seed ${seed}`,
+          );
+        }
+      }
+    }
+  }
+});
+
+test("an arrow never overshoots a target inside its own box", () => {
+  // A long label on a small stage puts the target inside the box that points at
+  // it. boxBorderToward scaled the direction vector out to the border, and for
+  // an interior target that scale exceeds 1, so the tail landed BEYOND the
+  // target and the arrow was drawn backwards, hidden under the box.
+  const structures = [{ ord: 1, x: 0.5, y: 0.3, label: "Superior mesenteric artery" }];
+  for (const seed of [1, 2, 3, 7, 12, 42, 99, 1234]) {
+    const card = buildCard({
+      structures, seed, stage: { width: 200, height: 150 },
+      config: { showDecoyDots: false, showTargetDot: true },
+    });
+    card.render(false);
+    const box = boxesOf(card.svg)[0];
+    const arrow = arrowsOf(card.svg)[0];
+    const target = { x: 0.5 * 200, y: 0.3 * 150 };
+    const toTarget = Math.hypot(target.x - box.cx, target.y - box.cy);
+    const toTail = Math.hypot(arrow.x1 - box.cx, arrow.y1 - box.cy);
+    assert.ok(toTail <= toTarget + 1e-6,
+      `seed ${seed}: the arrow starts ${toTail.toFixed(1)}px from the box centre ` +
+      `but the target is only ${toTarget.toFixed(1)}px away, so it points backwards`);
+  }
+});
+
+test("a prompt wider than the label keeps the box on the image", () => {
+  // The centre is clamped using the LABEL's width so the front and back agree,
+  // but the rect is sized from what is actually shown. prompt_text is
+  // user-configurable, so a prompt wider than the label overflowed the clamp.
+  const structures = [{ ord: 1, x: 0.06, y: 0.5, label: "A" }];
+  const config = { promptText: "Which structure is indicated here?", showDecoyDots: false };
+  for (const seed of [2, 3, 12, 99]) {
+    const front = buildCard({ structures, seed, config });
+    const back = buildCard({ structures, seed, back: true, config });
+    front.render(false);
+    back.render(false);
+    const box = boxesOf(front.svg)[0];
+    assert.ok(box.cx - box.w / 2 >= -1e-6 && box.cx + box.w / 2 <= STAGE.width + 1e-6,
+      `seed ${seed}: the question box spans [${(box.cx - box.w / 2).toFixed(1)}, ` +
+      `${(box.cx + box.w / 2).toFixed(1)}] outside 0..${STAGE.width}`);
+    // The widened clamp must apply to both sides, or fixing the overflow would
+    // make the box jump when the card is flipped.
+    const other = boxesOf(back.svg)[0];
+    assert.ok(near(box.cx, other.cx, 1e-6) && near(box.cy, other.cy, 1e-6),
+      `seed ${seed}: the box moved between question and answer`);
+  }
+});
+
+test("context labels honour the dot settings", () => {
+  // The non-context path consults showDecoyDots and showTargetDot; the context
+  // path drew a dot on every structure whatever the config said. Each of the
+  // three outcomes is checked, so both branches of the rule are pinned rather
+  // than just the all-off case.
+  const at = (ordinal) => project(STRUCTURES[ordinal - 1]);
+  const card = (config) =>
+    side({ direction: "forward", contextLabels: true, activeOrdinal: 2, seed: 7, config });
+
+  assert.equal(
+    dotsOf(card({ showDecoyDots: false, showTargetDot: false }).svg).length, 0,
+    "both off draws nothing",
+  );
+
+  const decoys = dotsOf(card({ showDecoyDots: true, showTargetDot: true }).svg);
+  assert.equal(decoys.length, STRUCTURES.length, "decoy dots mark every structure");
+
+  const lone = dotsOf(card({ showDecoyDots: false, showTargetDot: true }).svg);
+  assert.equal(lone.length, 1, "without decoys only the active structure is dotted");
+  assert.ok(near(lone[0].x, at(2).x, 1e-6) && near(lone[0].y, at(2).y, 1e-6),
+    "and that dot is on the active structure");
+});
+
+test("the answer side agrees with the question side when the seed cannot be stored", () => {
+  // Each buildCard gets its own `window`, so these are separate PAGE LOADS and
+  // the in-memory mirror cannot carry the seed across - which is the real
+  // front-to-back case, as opposed to the repaint tests below.
+  //
+  // The question side used to mint a random seed it alone could see, leaving the
+  // answer side to fall back to a deterministic hash: the box moved, and a
+  // "both" card could ask "name it" and answer "locate it".
+  const structures = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Vena cava" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
+    { ord: 4, x: 0.35, y: 0.6, label: "Pulmonary trunk" },
+  ];
+  for (const storage of ["unavailable", "quota"]) {
+    for (const activeOrdinal of [1, 2, 3, 4]) {
+      const options = { structures, direction: "both", activeOrdinal, storage, config: DOTS_ON };
+      const front = buildCard(options);
+      front.render(true); // the minting question view
+      const back = buildCard(Object.assign({}, options, { back: true }));
+      back.render(false);
+
+      const f = boxesOf(front.svg)[0];
+      const b = boxesOf(back.svg)[0];
+      assert.ok(near(f.cx, b.cx, 1e-6) && near(f.cy, b.cy, 1e-6),
+        `${storage}, ordinal ${activeOrdinal}: the box moved from (${f.cx}, ${f.cy}) ` +
+        `to (${b.cx}, ${b.cy}) between question and answer`);
+      assert.equal(front.typeBox.style.display, back.typeBox.style.display,
+        `${storage}, ordinal ${activeOrdinal}: the card changed direction between ` +
+        `question and answer`);
+    }
+  }
+});
+
 test("a repaint keeps its place when session storage is unavailable", () => {
   // getItem throws rather than returning null, so the stored-seed path is gone.
   // The in-memory mirror is what stops a resize repaint re-minting and moving
