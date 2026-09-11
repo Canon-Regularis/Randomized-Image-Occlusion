@@ -56,6 +56,25 @@ def test_image_field_is_an_img_tag_with_escaped_filename():
     assert "&quot;" in html and "&amp;" in html
 
 
+def test_a_filename_with_spaces_survives_the_round_trip():
+    # Anki media basenames routinely contain spaces ("Screen Shot 2024-01-01 at
+    # 10.00.00.png"). The quotes around the src are what keeps the reader from
+    # truncating at the first one, so this is the test that makes `quote=True`
+    # AND the surrounding quotes load-bearing rather than decorative.
+    from randomized_occlusion.collection.note_reader import _extract_image_filename
+
+    for filename in (
+        "Screen Shot 2024-01-01 at 10.00.00.png",
+        "my photo.png",
+        "a b c.jpg",
+    ):
+        field = _build(image_filename=filename).fields[DEFAULT_SPEC.image_field]
+        assert _extract_image_filename(field) == filename, (
+            f"{filename!r} did not survive the write/read round trip; it came "
+            f"back as {_extract_image_filename(field)!r}"
+        )
+
+
 def test_structures_field_is_a_self_describing_payload():
     structures = _structures()
     content = _build(structures=structures, options=CardOptions(direction=Direction.BOTH))

@@ -180,6 +180,18 @@ def test_legacy_v2_multi_without_interaction_uses_the_type_flag_field():
     revealed = NoteReader(DEFAULT_SPEC).read({"Structures": payload, "TypeAnswer": ""})
     assert revealed.options.interaction == Interaction.REVEAL
 
+    # Anki leaves whitespace behind in a field that has been edited and cleared,
+    # and TypeAnswer is collapsed rather than hidden, so it is reachable by hand.
+    # Without the .strip() a blanked flag would read as "type" and a plain edit +
+    # save would silently turn a reveal note into a typed one.
+    for residue in (" ", "\t", "\n", "   "):
+        blanked = NoteReader(DEFAULT_SPEC).read(
+            {"Structures": payload, "TypeAnswer": residue}
+        )
+        assert blanked.options.interaction == Interaction.REVEAL, (
+            f"TypeAnswer={residue!r} was treated as a set flag"
+        )
+
 
 def test_legacy_payload_context_labels_falls_back_to_the_supplied_default():
     # A payload predating the contextLabels key (v1 array, or a v2 note from
@@ -289,3 +301,82 @@ def test_an_img_with_an_empty_src_is_skipped():
         context_labels_default=False,
     )
     assert loaded.image_filename == "real.png"
+
+
+def test_a_corrupt_structure_entry_is_reported_as_unreadable():
+    # The class documents ValueError for unreadable user data and reserves
+    # anything else for a genuine bug, and the Browser turns a ValueError into a
+    # readable message. StructureSet.from_dicts indexes data["ord"] and calls
+    # float(data["x"]), so one bad entry used to escape as KeyError or TypeError
+    # and reach the user as a bare "'ord'".
+    import pytest
+
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    reader = NoteReader(DEFAULT_SPEC)
+    corrupt = [
+        [{"x": 0.1, "y": 0.2, "label": "a"}],          # no ordinal
+        [{"ord": 1, "y": 0.2, "label": "a"}],           # no x
+        [{"ord": 1, "x": 0.1, "y": 0.2}],               # no label
+        [{"ord": 1, "x": None, "y": 0.2, "label": "a"}],  # null coordinate
+        [{"ord": None, "x": 0.1, "y": 0.2, "label": "a"}],
+        ["not an object"],
+        [None],
+    ]
+    for entries in corrupt:
+        with pytest.raises(ValueError):
+            reader.read({"Structures": encode_json_b64(entries)})
+
+
+def test_a_null_setting_in_the_payload_reads_as_absent():
+    # render.js treats null as absent and falls back to the global config
+    # (`parsed.interaction || "type"`, and the contextLabels undefined/null
+    # check). Reading a null as a STORED value would make a plain edit and save
+    # bake in the opposite of what the note currently renders with.
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    payload = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "multi",
+            "direction": "forward",
+            "contextLabels": None,
+            "interaction": None,
+            "structures": [s.to_dict() for s in _structures().ordered],
+        }
+    )
+    reader = NoteReader(DEFAULT_SPEC)
+    # A null contextLabels must defer to the caller's default, both ways round.
+    for default in (True, False):
+        loaded = reader.read({"Structures": payload}, context_labels_default=default)
+        assert loaded.options.context_labels is default
+    # A null interaction must fall through to the TypeAnswer field, as an
+    # absent key does, rather than being taken as a stored "reveal".
+    typed = reader.read({"Structures": payload, "TypeAnswer": "1"})
+    assert typed.options.interaction == Interaction.TYPE
+
+
+def test_a_hand_edited_contextLabels_string_reads_like_every_other_boolean():
+    # The payload is written as JSON so this is normally a real bool, but the
+    # Structures field is base64 a determined user can rewrite. A bare bool()
+    # would read "false" as True, which is the opposite of what the same value
+    # means everywhere else in the config.
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    reader = NoteReader(DEFAULT_SPEC)
+    for stored, expected in [("false", False), ("off", False), ("no", False),
+                             ("", False), ("yes", True), ("1", True)]:
+        payload = encode_json_b64(
+            {
+                "v": 2,
+                "mode": "multi",
+                "direction": "forward",
+                "contextLabels": stored,
+                "structures": [s.to_dict() for s in _structures().ordered],
+            }
+        )
+        loaded = reader.read({"Structures": payload}, context_labels_default=True)
+        assert loaded.options.context_labels is expected, (
+            f"a stored contextLabels of {stored!r} read as "
+            f"{loaded.options.context_labels}"
+        )

@@ -169,6 +169,41 @@ def test_fingerprint_changes_with_config():
     assert _assembler().fingerprint(RC) != _assembler().fingerprint(other)
 
 
+def test_fingerprint_changes_with_the_template_version():
+    # TEMPLATE_VERSION is documented as a manual lever to force already-installed
+    # note types to refresh when nothing else changed. If it did not reach the
+    # hash, bumping it would do nothing and the refresh would never happen.
+    import randomized_occlusion.notetype.templates as templates_module
+
+    before = _assembler().fingerprint(RC)
+    original = templates_module.TEMPLATE_VERSION
+    templates_module.TEMPLATE_VERSION = original + 1
+    try:
+        assert _assembler().fingerprint(RC) != before, (
+            "bumping TEMPLATE_VERSION did not change the fingerprint, so it is "
+            "not the refresh lever it is documented to be"
+        )
+    finally:
+        templates_module.TEMPLATE_VERSION = original
+
+
+def test_fingerprint_changes_with_the_back_template():
+    # The back is hashed as well as the front. A back-only change (say the
+    # answer-side wrapper) must still force installed note types to refresh.
+    import randomized_occlusion.notetype.templates as templates_module
+
+    before = _assembler().fingerprint(RC)
+    original = templates_module._BACK_TEMPLATE
+    templates_module._BACK_TEMPLATE = original + "\n<!-- changed -->"
+    try:
+        assert _assembler().fingerprint(RC) != before, (
+            "a back-only change did not change the fingerprint, so installed "
+            "note types would keep serving the old answer side"
+        )
+    finally:
+        templates_module._BACK_TEMPLATE = original
+
+
 def test_fingerprint_changes_with_render_js():
     assert _assembler("a").fingerprint(RC) != _assembler("b").fingerprint(RC)
 
