@@ -45,11 +45,6 @@ _NEEDS_ANKI = frozenset(
         f"{_PACKAGE}.editor.dialog_host",
         f"{_PACKAGE}.editor.editor_integration",
         f"{_PACKAGE}.editor.launcher",
-        f"{_PACKAGE}.editor.savers",
-        f"{_PACKAGE}.ops",
-        f"{_PACKAGE}.ops.create_note",
-        f"{_PACKAGE}.ops.runner",
-        f"{_PACKAGE}.ops.update_note",
     }
 )
 

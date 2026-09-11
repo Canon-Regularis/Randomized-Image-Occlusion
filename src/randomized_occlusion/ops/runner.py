@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from aqt.operations import CollectionOp
-
 from ..collection.note_factory import NoteContent, NoteFactory
 from ..config.render_config import RenderConfig
 from ..domain.card_options import CardOptions
@@ -30,6 +28,13 @@ def run_note_op(
     on_success: Callable[[Any], None] | None,
     on_failure: Callable[[Exception], None] | None = None,
 ) -> None:
+    # Imported here rather than at module scope so this module, and the savers
+    # and note ops that import it, can be imported without Anki present. That is
+    # the only thing that made them untestable: `aqt` does not exist in the test
+    # environment, so one module-level import put ~230 lines of save logic beyond
+    # the reach of every test.
+    from aqt.operations import CollectionOp
+
     operation = CollectionOp(parent=parent, op=op)
     if on_success is not None:
         operation = operation.success(on_success)
