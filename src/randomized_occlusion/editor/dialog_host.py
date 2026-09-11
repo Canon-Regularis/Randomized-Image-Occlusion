@@ -9,6 +9,7 @@ a strong reference, release it when the dialog finishes). This captures it once.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -24,6 +25,22 @@ class ModelessDialogHost:
     def is_showing(self) -> bool:
         """Whether a dialog is currently presented and not yet finished."""
         return self._dialog is not None
+
+    def raise_existing(self) -> bool:
+        """Bring the open dialog to the front. False if none is open.
+
+        The editor is modeless, so it can sit behind the main window. Without
+        this, a second Tools-menu click did nothing whatsoever: present()
+        returned False and both call sites discarded the answer, so the user
+        saw no window, no message, and no reason why.
+        """
+        dialog = self._dialog
+        if dialog is None:
+            return False
+        with contextlib.suppress(Exception):
+            dialog.raise_()
+            dialog.activateWindow()
+        return True
 
     def present(self, build: Callable[[], Any]) -> bool:
         """Build and show a dialog unless one is already up; say whether it opened.

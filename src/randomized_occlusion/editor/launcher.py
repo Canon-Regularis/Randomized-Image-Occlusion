@@ -28,12 +28,16 @@ class EditorLauncher:
         try:
             # The host builds the dialog only when none is open, so the Tools menu
             # and the Add-window button, which share this launcher, can never
-            # stack two editors.
-            self._host.present(
+            # stack two editors. The editor is modeless, though, so the one
+            # already open may be behind the main window: raise it rather than
+            # letting the click do nothing at all.
+            opened = self._host.present(
                 lambda: MarkerDialog(
                     self._mw, self._config, saver=CreateNoteSaver(self._config)
                 )
             )
+            if not opened:
+                self._host.raise_existing()
         except Exception:
             # Surface the failure instead of silently doing nothing.
             showWarning(

@@ -49,6 +49,15 @@ class MarkupResult:
     deck_name: str | None
 
 
+def _progress_parent(dialog: Any) -> Any:
+    """The widget Anki should parent its progress dialog to.
+
+    Falls back to the dialog itself for any caller that does not offer one,
+    which keeps this a behaviour improvement rather than a new requirement.
+    """
+    return getattr(dialog, "progress_parent", dialog)
+
+
 def _cards(count: int) -> str:
     return count_phrase(count, "card")
 
@@ -91,9 +100,11 @@ class CreateNoteSaver(NoteSaver):
             header=result.header,
             back_extra=result.back_extra,
         )
-        count = len(result.structures)
+        count = result.structures.card_count(result.options)
         add_randomized_occlusion_note(
-            parent=dialog,
+            # Not `dialog`: Anki parents its progress dialog to this widget, and
+            # this one deletes itself on close, taking that with it.
+            parent=_progress_parent(dialog),
             request=request,
             render_config=self._config.render_config(),
             spec=self._spec,
@@ -129,7 +140,7 @@ class UpdateNoteSaver(NoteSaver):
             back_extra=result.back_extra,
         )
         update_randomized_occlusion_note(
-            parent=dialog,
+            parent=_progress_parent(dialog),
             request=request,
             render_config=self._config.render_config(),
             spec=self._spec,

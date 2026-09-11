@@ -125,6 +125,8 @@ class MarkerDialog(QDialog):
         # Where images pasted from the clipboard live until the collection
         # takes them; created on first paste, dropped when the dialog is done.
         self._scratch = PasteScratch()
+        # True only while the background persist op is in flight; see _save().
+        self._op_running = False
         self._existing_filename: str | None = (
             prefill.image_filename if prefill is not None else None
         )
@@ -373,6 +375,14 @@ class MarkerDialog(QDialog):
     # -- bridge callbacks ------------------------------------------------------
 
     def _on_web_ready(self) -> None:
+        # Every bridge callback below guards on _closed, the way _on_markers,
+        # finish_saved and save_failed already do. The webview can deliver a
+        # queued pycmd after the dialog has been torn down - marker.js defers
+        # its focus report by a tick, so pressing Escape with a label focused
+        # is enough - and touching a deleted Qt widget raises RuntimeError out
+        # of Anki's bridge handler.
+        if self._closed:
+            return
         self._web_ready = True
         # Before any image: setImage() resets the view to this level, so it has
         # to be in place first or the first picture opens at 1x.
@@ -390,6 +400,8 @@ class MarkerDialog(QDialog):
         A disabled shortcut does not consume the key at all, leaving the webview
         to paste text into the field the way any other page would.
         """
+        if self._closed:
+            return
         shortcut = getattr(self, "_paste_shortcut", None)
         if shortcut is not None:
             shortcut.setEnabled(not focused)
@@ -397,9 +409,13 @@ class MarkerDialog(QDialog):
     def _on_zoom(self, zoom: float) -> None:
         # Only recorded here; it is written to the config once, on close, so a
         # wheel gesture does not hammer Anki's config store.
+        if self._closed:
+            return
         self._zoom.record(zoom)
 
     def _on_count(self, count: int) -> None:
+        if self._closed:
+            return
         self._marker_count = count
         self._refresh_marker_state()
 
@@ -433,6 +449,18 @@ class MarkerDialog(QDialog):
             {"x": s.target.x, "y": s.target.y, "label": s.label}
             for s in prefill.structures.ordered
         ]
+        if self._read_data_url(path) is None:
+            # The file exists but could not be read (locked, or permissions).
+            # Treated exactly like a missing one: without the image the canvas
+            # cannot show the markers, and leaving Save enabled over a blank
+            # canvas invited a save that reports 'add at least one marker'
+            # after the whole freeze/getMarkers round-trip.
+            self._marker_count = 0
+            self._update_save_enabled()
+            self._status.setText(
+                'Image file could not be read. Click "Replace image…" to reload it.'
+            )
+            return
         self._display_from_path(path, markers)
 
     def _choose_image(self) -> None:
@@ -466,8 +494,15 @@ class MarkerDialog(QDialog):
             showWarning(_NO_CLIPBOARD_IMAGE)
             return
 
+        # Asked before anything is written. Writing first and asking second
+        # meant a declined replacement had already put the new bytes on disk,
+        # and a second paste within the same second landed on the very file
+        # _new_image_path still referred to.
+        if not self._confirm_replacing_markers():
+            return
+
         if choice.path is not None:
-            self._use_new_image(choice.path)
+            self._use_new_image(choice.path, confirm=False)
             return
         written = (
             self._write_pasted_bytes(choice.data, choice.suffix)
@@ -475,14 +510,14 @@ class MarkerDialog(QDialog):
             else self._write_pasted_image(choice.bitmap)
         )
         if written is not None:
-            self._use_new_image(written)
+            self._use_new_image(written, confirm=False)
 
     def _confirm_replacing_markers(self) -> bool:
         """Ask before throwing away placed markers; True to go ahead."""
         prompt = replace_image_prompt(self._marker_count)
         return prompt is None or bool(askUser(prompt, defaultno=True))
 
-    def _use_new_image(self, path: str) -> None:
+    def _use_new_image(self, path: str, *, confirm: bool = True) -> None:
         """Adopt ``path`` as the image being marked up.
 
         A newly chosen image replaces whatever was there and starts fresh: the
@@ -495,7 +530,7 @@ class MarkerDialog(QDialog):
         also where the user is asked to confirm losing that work; late enough
         that we know an image is genuinely on its way in.
         """
-        if not self._confirm_replacing_markers():
+        if confirm and not self._confirm_replacing_markers():
             return
         data_url = self._read_data_url(path)
         if data_url is None:
@@ -554,6 +589,18 @@ class MarkerDialog(QDialog):
         js_markers = json.dumps(markers) if markers is not None else "null"
         self.web.eval(f"ROEditor.setImage({json.dumps(data_url)}, {js_markers})")
 
+    @property
+    def progress_parent(self) -> Any:
+        """The widget Anki should parent its progress dialog to.
+
+        The main window, not this dialog. Anki makes the progress dialog a Qt
+        CHILD of whatever a CollectionOp is given, and this dialog calls
+        deleteLater() on itself when it closes -- which destroys its children.
+        Saving and then closing the editor would take Anki's progress dialog
+        down with it while the operation was still running.
+        """
+        return self._mw
+
     def _has_image(self) -> bool:
         return bool(self._new_image_path or self._existing_filename)
 
@@ -572,12 +619,18 @@ class MarkerDialog(QDialog):
         # `_saving` lock is held from here until the persist op resolves so a
         # second Save press can't queue a duplicate note.
         self._saving = True
+        # Distinct from _saving: between here and _on_markers the only thing
+        # in flight is a JS round-trip, and nothing is reading the pasted file.
+        # _on_finished used to decline to clean up for the whole of _saving and
+        # delegate to _on_markers, which cannot run once the webview is gone.
+        self._op_running = False
         self._freeze_for_save(True)
         self.web.evalWithCallback("ROEditor.getMarkers()", self._on_markers)
 
     def _abort_save(self) -> None:
         """Release the pre-save freeze so the user can fix input and retry."""
         self._saving = False
+        self._op_running = False
         self._freeze_for_save(False)
 
     def _freeze_for_save(self, frozen: bool) -> None:
@@ -621,7 +674,18 @@ class MarkerDialog(QDialog):
         # Controls stay frozen and `_saving` stays held until the background
         # persist op resolves: on success the saver closes the dialog via
         # finish_saved(); on failure it calls save_failed() to release the lock.
-        self._saver.save(self, result)
+        #
+        # save() does real work before the op is queued (writing the deck to
+        # the config, assembling the render config). If any of that raises, the
+        # exception escapes into Anki's webview callback and neither callback
+        # ever runs, leaving `_saving` held forever: Load, Paste and Save all
+        # disabled, and only Cancel working.
+        self._op_running = True
+        try:
+            self._saver.save(self, result)
+        except Exception as exc:
+            self._abort_save()
+            showWarning(f"Could not save the card:\n\n{exc}")
 
     def _structures_from_markers(self, markers: Any) -> StructureSet | None:
         """Validate the raw markers from the canvas into a StructureSet.
@@ -674,7 +738,10 @@ class MarkerDialog(QDialog):
             # The user cancelled after the save op had already committed; the note
             # exists, but the dialog is gone; don't accept()/touch dead widgets.
             return
-        tooltip(message)
+        # Parented to the main window: the next line accepts, which destroys
+        # this dialog and its children on the next event-loop turn, and the
+        # tooltip would be one of them - so the user never saw it.
+        tooltip(message, parent=self._mw)
         self.accept()
 
     def save_failed(self, message: str) -> None:
@@ -714,9 +781,11 @@ class MarkerDialog(QDialog):
         # cancelled note or touching torn-down widgets.
         self._closed = True
         self._zoom.commit()
-        # A save op still running is reading the pasted file from under us, so
-        # leave it for finish_saved()/save_failed() to clear once it is done.
-        if not self._saving:
+        # Only a running OP is reading the pasted file; that one is left for
+        # finish_saved()/save_failed() to clear. Waiting on `_saving` instead
+        # also covered the getMarkers() round-trip, and cancelling during that
+        # handed cleanup to a callback the webview teardown below prevents.
+        if not self._op_running:
             self._scratch.discard()
         # AnkiWebView should be torn down explicitly or Anki can leak/crash on
         # close. cleanup() exists on modern AnkiWebView; guard for safety across

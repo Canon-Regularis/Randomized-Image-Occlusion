@@ -43,7 +43,7 @@ def test_write_bytes_returns_the_written_path(tmp_path):
     scratch, _ = _scratch(tmp_path)
     path = scratch.write_bytes(b"\x89PNG payload", ".png")
 
-    assert os.path.basename(path) == "paste-20260908-134500.png"
+    assert os.path.basename(path) == "paste-20260908-134500-1.png"
     with open(path, "rb") as handle:
         assert handle.read() == b"\x89PNG payload"
 
@@ -74,13 +74,19 @@ def test_failed_write_preserves_existing_file(tmp_path):
     assert [n for n in os.listdir(made[0]) if n.endswith(PARTIAL)] == []
 
 
-def test_same_second_write_replaces_the_previous(tmp_path):
-    # Same name by design; a second paste means "use this picture instead".
+def test_a_second_write_in_the_same_second_gets_its_own_file(tmp_path):
+    # The stamp resolves only to the second, so these two used to share a name and
+    # the second write replaced the bytes of the first. The dialog holds the path
+    # of the image it is CURRENTLY showing, so a paste the user then declined had
+    # already overwritten the picture on the canvas: it saved a note pairing one
+    # image with markers placed on another.
     scratch, _ = _scratch(tmp_path)
     first = scratch.write_bytes(b"older", ".png")
     second = scratch.write_bytes(b"newer", ".png")
 
-    assert first == second
+    assert first != second
+    with open(first, "rb") as handle:
+        assert handle.read() == b"older", "the earlier paste was overwritten"
     with open(second, "rb") as handle:
         assert handle.read() == b"newer"
 

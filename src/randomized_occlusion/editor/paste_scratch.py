@@ -43,6 +43,10 @@ class PasteScratch:
         self._make_dir = make_dir or (lambda: tempfile.mkdtemp(prefix="randomized-occlusion-"))
         self._now = now or datetime.now
         self._directory: str | None = None
+        #: Distinguishes pastes made within the same second. The stamp alone
+        #: collided, and a colliding write replaced the bytes of the paste the
+        #: canvas was still displaying.
+        self._sequence = 0
 
     @property
     def directory(self) -> str | None:
@@ -52,14 +56,16 @@ class PasteScratch:
     def target(self, suffix: str) -> str:
         """The path a paste with this extension is written to.
 
-        The stamp resolves to the second, so two pastes within one second
-        collide by name; the newer replaces the older, which is what a second
-        paste means. :meth:`write_bytes` makes the write atomic so a failure
-        cannot leave the older one truncated.
+        Every call returns a distinct path. The stamp only resolves to the
+        second, so two pastes within one second used to collide -- and the
+        second write landed on the file the dialog was still pointing at, so
+        declining the replacement left the canvas showing one image while the
+        save used another. :meth:`write_bytes` keeps each write atomic.
         """
         if self._directory is None:
             self._directory = self._make_dir()
-        stamp = self._now().strftime("%Y%m%d-%H%M%S")
+        self._sequence += 1
+        stamp = f'{self._now().strftime("%Y%m%d-%H%M%S")}-{self._sequence}'
         return os.path.join(self._directory, paste_filename(stamp, suffix))
 
     def write_bytes(self, data: bytes, suffix: str) -> str:

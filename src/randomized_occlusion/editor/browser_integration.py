@@ -14,7 +14,7 @@ from typing import Any
 
 from aqt import gui_hooks
 from aqt.qt import qconnect
-from aqt.utils import showWarning
+from aqt.utils import showWarning, tooltip
 
 from ..collection.note_reader import NoteReader, note_fields
 from ..config.config_service import ConfigService
@@ -94,8 +94,10 @@ class BrowserEditIntegration:
             )
             return
         # The host opens at most one dialog; without that, editing the same note
-        # twice would let the second Save silently overwrite the first.
-        self._host.present(
+        # twice would let the second Save silently overwrite the first. One host
+        # is shared across every Browser window, so this also covers a second
+        # note: say so rather than appearing to ignore the click.
+        opened = self._host.present(
             lambda: MarkerDialog(
                 self._mw,
                 self._config,
@@ -103,3 +105,6 @@ class BrowserEditIntegration:
                 prefill=loaded,
             )
         )
+        if not opened:
+            self._host.raise_existing()
+            tooltip("The occlusion editor is already open.")
