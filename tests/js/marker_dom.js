@@ -392,9 +392,18 @@ function buildEditor(opts) {
       loaded = true;
       if (typeof img.onload === "function") img.onload();
     },
-    /** Flush every pending setTimeout (the zoom-report throttle, rAF fallback). */
+    /**
+     * Flush every pending setTimeout (the zoom-report throttle, rAF fallback)
+     * and return how many ran. The count is the only way to observe work being
+     * coalesced rather than merely being correct.
+     */
     runTimers() {
-      while (timers.length) timers.shift().fn();
+      let ran = 0;
+      while (timers.length) {
+        timers.shift().fn();
+        ran += 1;
+      }
+      return ran;
     },
 
     fire,

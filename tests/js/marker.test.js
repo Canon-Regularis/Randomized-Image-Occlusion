@@ -1407,3 +1407,151 @@ test("setImage clears spaceHeld", () => {
   assert.equal(h.state().panX, panBefore, "the picture must not have panned");
   assert.ok(h.api.getMarkers()[0].x > 0.6, "the marker moved instead");
 });
+
+// ---- drag, pan, nudge and crosshair -----------------------------------------
+//
+// These functions had no mutation entry at all: setPan, startDrag, onDragMove,
+// onDragEnd, startPan, nudgeSelected, renderCrosshair and onStageResize were 26
+// of marker.js's 65 functions that nothing pinned.
+
+const TWO = [
+  { x: 0.25, y: 0.25, label: "one" },
+  { x: 0.75, y: 0.75, label: "two" },
+];
+
+test("dragging a marker moves that marker, not the first one", () => {
+  const h = loaded({ markers: TWO });
+  const from = h.pointAt(0.75, 0.75);
+  const to = h.pointAt(0.5, 0.5);
+
+  h.on(h.groups()[1], "pointerdown", { clientX: from.x, clientY: from.y });
+  h.fire("pointermove", { clientX: to.x, clientY: to.y });
+  h.release(h.els.stage, { button: 0, clientX: to.x, clientY: to.y });
+
+  const markers = plain(h.api.getMarkers());
+  assert.ok(near(markers[0].x, 0.25, 1e-6) && near(markers[0].y, 0.25, 1e-6),
+    `marker one moved to (${markers[0].x}, ${markers[0].y}); the wrong one was dragged`);
+  assert.ok(near(markers[1].x, 0.5, 1e-6) && near(markers[1].y, 0.5, 1e-6),
+    "marker two did not follow the pointer");
+});
+
+test("a second finger does not steer an in-flight drag", () => {
+  // Pointer events interleave on a touch screen. A move carrying a different
+  // pointerId belongs to another finger and must be ignored, or a two-finger
+  // gesture would fling the marker being dragged.
+  const h = loaded({ markers: TWO });
+  const from = h.pointAt(0.25, 0.25);
+
+  h.on(h.groups()[0], "pointerdown", { pointerId: 1, clientX: from.x, clientY: from.y });
+  const other = h.pointAt(0.9, 0.9);
+  h.fire("pointermove", { pointerId: 2, clientX: other.x, clientY: other.y });
+
+  let markers = plain(h.api.getMarkers());
+  assert.ok(near(markers[0].x, 0.25, 1e-6), "another pointer's move dragged the marker");
+
+  // ...and nor does its release end the drag.
+  h.fire("pointerup", { pointerId: 2, clientX: other.x, clientY: other.y });
+  const to = h.pointAt(0.4, 0.4);
+  h.fire("pointermove", { pointerId: 1, clientX: to.x, clientY: to.y });
+  markers = plain(h.api.getMarkers());
+  assert.ok(near(markers[0].x, 0.4, 1e-6),
+    "another pointer's release ended the drag early");
+});
+
+test("the stage is marked while panning and unmarked after", () => {
+  // The class is what switches the cursor and suppresses hover affordances.
+  const h = loaded({ markers: TWO });
+  h.api.setZoom(4);
+  assert.ok(!h.els.stage._classes.has("ed-panning"), "not panning yet");
+
+  h.on(h.els.stage, "pointerdown", { button: 1, clientX: 400, clientY: 300 });
+  assert.ok(h.els.stage._classes.has("ed-panning"), "a pan should mark the stage");
+
+  h.fire("pointerup", { clientX: 400, clientY: 300 });
+  assert.ok(!h.els.stage._classes.has("ed-panning"), "the mark outlived the pan");
+});
+
+test("a nudge cannot push a marker off the image", () => {
+  const h = loaded({ markers: [{ x: 0.999, y: 0.999, label: "edge" }] });
+  h.on(h.groups()[0], "pointerdown", { clientX: h.pointAt(0.999, 0.999).x, clientY: h.pointAt(0.999, 0.999).y });
+  h.release(h.els.stage, { button: 0, clientX: h.pointAt(0.999, 0.999).x, clientY: h.pointAt(0.999, 0.999).y });
+
+  for (let i = 0; i < 20; i += 1) {
+    h.key("ArrowRight", { shiftKey: true });
+    h.key("ArrowDown", { shiftKey: true });
+  }
+
+  const [marker] = plain(h.api.getMarkers());
+  assert.ok(marker.x <= 1 && marker.y <= 1,
+    `nudging pushed the marker to (${marker.x}, ${marker.y}), off the image`);
+  assert.ok(marker.x >= 0 && marker.y >= 0);
+});
+
+test("a nudge redraws the marker where it moved to", () => {
+  const h = loaded({ markers: [{ x: 0.5, y: 0.5, label: "mid" }] });
+  const p = h.pointAt(0.5, 0.5);
+  h.on(h.groups()[0], "pointerdown", { clientX: p.x, clientY: p.y });
+  h.release(h.els.stage, { button: 0, clientX: p.x, clientY: p.y });
+  const before = h.dots()[0];
+
+  for (let i = 0; i < 10; i += 1) h.key("ArrowRight", { shiftKey: true });
+
+  const after = h.dots()[0];
+  assert.ok(after.x > before.x + 1,
+    `the dot stayed at x=${before.x} while the marker moved, so the overlay was not redrawn`);
+});
+
+test("the crosshair follows the pointer and hides while panning", () => {
+  const h = loaded({ markers: TWO });
+  const p = h.pointAt(0.5, 0.5);
+  h.on(h.els.stage, "pointermove", { clientX: p.x, clientY: p.y });
+  assert.equal(h.crosshairLines(), 2, "a horizontal and a vertical guide");
+
+  h.api.setZoom(4);
+  h.on(h.els.stage, "pointerdown", { button: 1, clientX: p.x, clientY: p.y });
+  assert.equal(h.crosshairLines(), 0,
+    "the crosshair should hide while the picture is being moved, not the point chosen");
+
+  h.fire("pointerup", { clientX: p.x, clientY: p.y });
+  h.on(h.els.stage, "pointermove", { clientX: p.x, clientY: p.y });
+  assert.equal(h.crosshairLines(), 2, "the crosshair should come back after the pan");
+});
+
+test("the crosshair is drawn in overlay coordinates", () => {
+  // The overlay sits one border-pixel inside the stage, so client coordinates
+  // used verbatim would put the guides off by that much at every zoom level.
+  const h = loaded({ markers: TWO });
+  const p = h.pointAt(0.25, 0.75);
+  h.on(h.els.stage, "pointermove", { clientX: p.x, clientY: p.y });
+
+  const base = h.visibleRect();
+  const lines = h.els.crosshair.childNodes;
+  const horizontal = lines.find((l) => Number(l.attributes.y1) === Number(l.attributes.y2));
+  const vertical = lines.find((l) => Number(l.attributes.x1) === Number(l.attributes.x2));
+  assert.ok(horizontal && vertical, "both guides are drawn");
+  assert.ok(near(Number(horizontal.attributes.y1), p.y - base.top, 1e-6),
+    "the horizontal guide is not at the pointer, in overlay space");
+  assert.ok(near(Number(vertical.attributes.x1), p.x - base.left, 1e-6),
+    "the vertical guide is not at the pointer, in overlay space");
+});
+
+test("a burst of resizes is coalesced into one pass", () => {
+  const h = loaded({ markers: TWO });
+  h.api.setZoom(4);
+  h.runTimers();
+
+  // Dragging a dialog edge fires this continuously; each pass re-measures and
+  // re-renders, so doing the work per event makes the resize crawl.
+  for (let i = 0; i < 5; i += 1) h.triggerResizeObserver();
+  assert.equal(h.runTimers(), 1, "five resize events should schedule one pass");
+
+  // ...and the next burst must schedule again. Failing to release the pending
+  // frame would coalesce the resize away permanently, so the pan bounds would
+  // never be re-measured after the first resize of the session.
+  for (let i = 0; i < 3; i += 1) h.triggerResizeObserver();
+  assert.equal(h.runTimers(), 1, "a later burst scheduled no pass at all");
+
+  // Coalescing is an optimisation, not a licence to skip the re-bound.
+  const markers = plain(h.api.getMarkers());
+  assert.ok(near(markers[0].x, 0.25, 1e-6) && near(markers[0].y, 0.25, 1e-6));
+});
