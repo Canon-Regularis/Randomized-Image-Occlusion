@@ -107,6 +107,17 @@ class StructureSet:
 
     # -- anki helpers ----------------------------------------------------------
 
+    def card_count(self, options: CardOptions) -> int:
+        """How many cards Anki will generate for these options.
+
+        One per cloze ordinal in :meth:`cloze_field`, which is one per
+        structure in multi mode and exactly ONE in single mode however many
+        structures there are. Reporting ``len(structures)`` told a user who
+        marked five structures in single mode "Added 5 cards." and gave them
+        one.
+        """
+        return 1 if options.mode == CardMode.SINGLE else len(self.ordered)
+
     def cloze_field(self, options: CardOptions) -> str:
         """The contents of the hidden cloze field that generates the cards.
 
@@ -125,11 +136,12 @@ class StructureSet:
         can't be un-escaped without breaking Anki's cloze parsing, so for labels
         with ``::``/``{{``/``}}`` use reveal or single-card mode.
 
-        Every mode emits exactly one card per structure. In single mode that one
-        card cycles through all structures (the cloze answer is inert). In multi
-        mode the card's direction (forward, reverse, or, for ``Direction.BOTH``,
-        a fresh random pick each review) is chosen by the renderer, not encoded
-        in the ordinal, so all three directions share these clozes.
+        Multi mode emits one card per structure. Single mode emits exactly ONE
+        card whatever the structure count, and that card cycles through all of
+        them (its cloze answer is inert). In multi mode the card's direction
+        (forward, reverse, or, for ``Direction.BOTH``, a fresh random pick each
+        review) is chosen by the renderer, not encoded in the ordinal, so all
+        three directions share these clozes.
         """
         if options.mode == CardMode.SINGLE:
             return "{{c1::.}}"

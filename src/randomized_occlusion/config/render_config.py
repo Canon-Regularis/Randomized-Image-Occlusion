@@ -17,12 +17,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..domain.card_options import coerce_bool
 from .defaults import DEFAULT_CONFIG
 
 __all__ = ["RenderConfig"]
 
-# Strings a user might type into config.json that should read as ``False``.
-_FALSEY_STRINGS = {"false", "0", "no", "off", "", "none"}
+# The falsey spellings live in the domain, beside CardOptions, because both
+# read the SAME config keys and have to agree. They did not: this file
+# honoured them while CardOptions used a plain bool(), so a hand-edited
+# "show_context_labels": "false" rendered every card without context labels
+# while creating every new note with them switched on.
 
 # A conservative allow-list for CSS colours. These values are written verbatim
 # into the note type's stylesheet, so anything not matching (which could break
@@ -61,13 +65,7 @@ def _as_int(value: Any, default: int, *, minimum: int, maximum: int | None = Non
 
 
 def _as_bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() not in _FALSEY_STRINGS
-    return default
+    return coerce_bool(value, default)
 
 
 def _as_str(value: Any, default: str) -> str:

@@ -18,9 +18,31 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar
 
-__all__ = ["CardMode", "CardOptions", "Direction", "Interaction"]
+__all__ = ["CardMode", "CardOptions", "Direction", "Interaction", "coerce_bool"]
+
+#: Spellings a hand-edited config may use for "off". config.json is meant to
+#: be edited by hand, so a boolean setting can arrive as any of these.
+_FALSEY_STRINGS = frozenset({"false", "0", "no", "off", "", "none"})
 
 _Choice = TypeVar("_Choice", bound="_StrChoice")
+
+
+def coerce_bool(value: Any, default: bool) -> bool:
+    """Read a config value as a boolean. Never raises.
+
+    Lives here, and is used by :class:`RenderConfig` as well, because the two
+    read the SAME config keys: when this was a plain ``bool()`` and
+    RenderConfig honoured the spellings above, ``"show_context_labels":
+    "false"`` switched context labels off for every rendered card while
+    switching them on for every newly created note.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSEY_STRINGS
+    return default
 
 
 class _StrChoice(str, Enum):
@@ -84,6 +106,6 @@ class CardOptions:
             interaction=Interaction.coerce(
                 config.get("interaction"), Interaction.REVEAL
             ),
-            context_labels=bool(config.get("show_context_labels", False)),
+            context_labels=coerce_bool(config.get("show_context_labels"), False),
             mode=CardMode.coerce(config.get("card_mode"), CardMode.MULTI),
         )

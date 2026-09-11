@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
 
-from ..domain.card_options import CardMode, CardOptions, Direction, Interaction
+from ..domain.card_options import (
+    CardMode,
+    CardOptions,
+    Direction,
+    Interaction,
+    coerce_bool,
+)
 from ..domain.codec import decode_json_b64
 from ..domain.structure_set import StructureSet
 from ..notetype.spec import NoteTypeSpec
@@ -156,15 +162,35 @@ class NoteReader:
             raise ValueError("this note's structure data could not be decoded") from exc
 
         if isinstance(payload, list):
-            return StructureSet.from_dicts(payload), Direction.FORWARD, CardMode.MULTI, None, None
+            return self._structures(payload), Direction.FORWARD, CardMode.MULTI, None, None
         if isinstance(payload, dict) and isinstance(payload.get("structures"), list):
             return (
-                StructureSet.from_dicts(payload["structures"]),
+                self._structures(payload["structures"]),
                 Direction.coerce(payload.get("direction"), Direction.FORWARD),
                 CardMode.coerce(payload.get("mode"), CardMode.MULTI),
-                bool(payload.get("contextLabels")) if "contextLabels" in payload else None,
+                # `is not None`, not `in`: render.js reads a null as ABSENT and
+                # falls back to the global config, so storing it as a False
+                # would bake the opposite setting in on the next save.
+                coerce_bool(payload.get("contextLabels"), False)
+                if payload.get("contextLabels") is not None
+                else None,
                 Interaction.coerce(payload.get("interaction"), Interaction.REVEAL)
-                if "interaction" in payload
+                if payload.get("interaction") is not None
                 else None,
             )
         raise ValueError("this note's structure data is malformed")
+
+    @staticmethod
+    def _structures(entries: Any) -> StructureSet:
+        """``StructureSet.from_dicts``, holding this module's error contract.
+
+        ``from_dicts`` indexes ``data["ord"]`` and calls ``float(data["x"])``,
+        so a single corrupt entry escapes as KeyError or TypeError. This class
+        promises ValueError for unreadable user data and reserves anything else
+        for a genuine bug; the Browser turns a ValueError into a readable
+        message, so a KeyError reached the user as a bare "'ord'".
+        """
+        try:
+            return StructureSet.from_dicts(entries)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("this note's structure data is malformed") from exc
