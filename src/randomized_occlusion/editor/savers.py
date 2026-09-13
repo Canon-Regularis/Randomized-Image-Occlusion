@@ -54,8 +54,18 @@ def _progress_parent(dialog: Any) -> Any:
 
     Falls back to the dialog itself for any caller that does not offer one,
     which keeps this a behaviour improvement rather than a new requirement.
+
+    The presence check deliberately avoids ``getattr(..., default)``:
+    ``progress_parent`` is a property, and a default would swallow an
+    AttributeError raised *inside* it, silently reverting to the dialog -- the
+    very thing this exists to avoid. Looking the name up on the type and in the
+    instance dict answers "is it offered?" without running it.
     """
-    return getattr(dialog, "progress_parent", dialog)
+    if hasattr(type(dialog), "progress_parent") or "progress_parent" in getattr(
+        dialog, "__dict__", {}
+    ):
+        return dialog.progress_parent
+    return dialog
 
 
 def _cards(count: int) -> str:

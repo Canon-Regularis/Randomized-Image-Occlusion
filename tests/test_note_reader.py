@@ -328,6 +328,71 @@ def test_a_corrupt_structure_entry_is_reported_as_unreadable():
             reader.read({"Structures": encode_json_b64(entries)})
 
 
+def test_an_out_of_range_number_is_reported_as_unreadable():
+    # int() and float() raise OverflowError, not ValueError, for values ordinary
+    # JSON can carry. render_config already catches OverflowError on both its
+    # numeric paths for exactly this reason; the reader did not, so a
+    # hand-editable payload could raise straight past the documented contract.
+    import json
+
+    import pytest
+
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    reader = NoteReader(DEFAULT_SPEC)
+    huge = "9" * 401
+    payloads = [
+        f'[{{"ord": 1, "x": {huge}, "y": 0.2, "label": "a"}}]',
+        f'[{{"ord": {huge}0, "x": 0.1, "y": 0.2, "label": "a"}}]',
+        f'[{{"ord": 1, "x": 0.1, "y": {huge}, "label": "a"}}]',
+    ]
+    for raw in payloads:
+        with pytest.raises(ValueError):
+            reader.read({"Structures": encode_json_b64(json.loads(raw))})
+
+
+def test_a_readable_validation_message_survives():
+    # StructureSet says "ordinals must be exactly 1..N with no gaps or
+    # duplicates; got [1, 3]", which a user can act on. Replacing every failure
+    # with "malformed" threw that away.
+    import pytest
+
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    gapped = [
+        {"ord": 1, "x": 0.1, "y": 0.2, "label": "a"},
+        {"ord": 3, "x": 0.3, "y": 0.4, "label": "b"},
+    ]
+    with pytest.raises(ValueError, match="ordinals"):
+        NoteReader(DEFAULT_SPEC).read({"Structures": encode_json_b64(gapped)})
+
+
+def test_an_uninterpretable_stored_flag_defers_to_the_default():
+    # A value with no boolean reading is "not stored", exactly like a null: the
+    # caller's default decides. Pinning it to False would bake the opposite of
+    # what render.js shows into the next save.
+    from randomized_occlusion.domain.codec import encode_json_b64
+
+    reader = NoteReader(DEFAULT_SPEC)
+    for stored in ([1, 2], {"a": 1}):
+        payload = encode_json_b64(
+            {
+                "v": 2,
+                "mode": "multi",
+                "direction": "forward",
+                "contextLabels": stored,
+                "structures": [s.to_dict() for s in _structures().ordered],
+            }
+        )
+        for default in (True, False):
+            loaded = reader.read(
+                {"Structures": payload}, context_labels_default=default
+            )
+            assert loaded.options.context_labels is default, (
+                f"a stored contextLabels of {stored!r} ignored the default"
+            )
+
+
 def test_a_null_setting_in_the_payload_reads_as_absent():
     # render.js treats null as absent and falls back to the global config
     # (`parsed.interaction || "type"`, and the contextLabels undefined/null

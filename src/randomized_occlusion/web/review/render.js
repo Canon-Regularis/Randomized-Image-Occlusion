@@ -109,15 +109,21 @@
   }
 
   /**
-   * Whether session storage really holds the seed.
+   * Whether session storage really holds THIS seed.
+   *
+   * Compares the value, not merely presence. SEED_KEY is one global key that
+   * every card rewrites, so from the second card of a session onward something
+   * is always stored: a presence check reports success for a write that threw on
+   * quota, leaving the previous card's seed in place and the answer side unable
+   * to reproduce this card's layout.
    *
    * Deliberately ignores the in-memory mirror: the mirror is what makes a
    * REPAINT reproducible, but it does not survive a page load, so it says
    * nothing about whether the answer side will be able to recover this seed.
    */
-  function seedPersisted() {
+  function seedPersisted(value) {
     try {
-      return window.sessionStorage.getItem(SEED_KEY) !== null;
+      return window.sessionStorage.getItem(SEED_KEY) === String(value);
     } catch (e) {
       return false;
     }
@@ -131,6 +137,23 @@
       window.sessionStorage.setItem(SEED_KEY, String(value));
     } catch (e) {
       /* the in-memory fallback above already holds the seed */
+    }
+  }
+
+  /**
+   * Drop whatever is under SEED_KEY. Best-effort.
+   *
+   * SEED_KEY is one global key every card rewrites, so a write that failed
+   * leaves the PREVIOUS card's seed in place -- and the answer side, opening on
+   * a fresh page, cannot tell it apart from its own and lays the card out to a
+   * seed the question side never used. Clearing it means the back finds nothing
+   * and computes the same deterministic fallback the front settled on.
+   */
+  function clearSeed() {
+    try {
+      window.sessionStorage.removeItem(SEED_KEY);
+    } catch (e) {
+      /* nothing more to do: the value is unreachable to us either way */
     }
   }
 
@@ -292,11 +315,14 @@
     // Scale (dx, dy) so it just reaches the rectangle border.
     var scaleX = dx !== 0 ? halfW / Math.abs(dx) : Infinity;
     var scaleY = dy !== 0 ? halfH / Math.abs(dy) : Infinity;
-    // Capped at 1: for a target INSIDE the box both scales exceed 1, which put
-    // the tail beyond the target and drew the arrow backwards out of the far
-    // border, hidden underneath the box.
-    var scale = Math.min(1, Math.min(scaleX, scaleY));
-    return { x: cx + dx * scale, y: cy + dy * scale };
+    var scale = Math.min(scaleX, scaleY);
+    if (scale <= 1) return { x: cx + dx * scale, y: cy + dy * scale };
+    // scale > 1 means the target lies INSIDE the box. Scaling outward would put
+    // the tail past the target and draw the arrow backwards, hidden under the
+    // box; clamping to 1 instead put the tail ON the target, a zero-length line
+    // that renders as nothing at all. Leave from the OPPOSITE border, which is
+    // outside the box, visible, and still travels toward the target.
+    return { x: cx - dx * scale, y: cy - dy * scale };
   }
 
   // ---- SVG drawing ----------------------------------------------------------
@@ -397,7 +423,7 @@
    *     `clampText` (the full LABEL), not the shown `text`, so the front "?" box
    *     and the back label box resolve to the SAME centre and still line up.
    */
-  function drawBox(svg, center, target, text, cfg, showArrow, extraClass, clampText) {
+  function drawBox(svg, center, target, text, cfg, showArrow, extraClass, clampText, flips) {
     var group = svgEl("g", { class: "ro-box" });
     var rectClass = extraClass ? "ro-box-rect " + extraClass : "ro-box-rect";
     var rect = svgEl("rect", { class: rectClass, rx: "8", ry: "8" });
@@ -432,15 +458,23 @@
     // Nudge the centre inward using the LABEL's box (so front/back match), then
     // size the box for the actually-shown text at that clamped centre.
     var clampBox = sizeBox(String(clampText != null ? clampText : text), maxTextW, lineHeight, measure);
-    // A question side may show promptText instead of the label, and prompt_text
-    // is user-configurable, so a prompt wider than the label overflowed a clamp
-    // sized only for the label and hung off the image. Widen the clamp to cover
-    // both. Applied to every box, not just the ones that flip, because the clamp
-    // has to come out identical on the question and answer sides or the box
-    // would move when the card is flipped.
-    var promptBox = sizeBox(String(cfg.promptText), maxTextW, lineHeight, measure);
-    if (promptBox.w > clampBox.w) clampBox.w = promptBox.w;
-    if (promptBox.h > clampBox.h) clampBox.h = promptBox.h;
+    // `flips` marks a box that shows promptText in one state and its label in
+    // another: the active box of a card, and the single-card cycler's current
+    // marker. prompt_text is user-configurable, so a prompt wider than the label
+    // overflows a clamp sized only for the label and hangs off the image -- so
+    // such a box is clamped for BOTH, identically in every state, which is what
+    // keeps it from moving when the card is flipped or the marker revealed.
+    //
+    // Every other box (the context labels, the accumulating answer key) can
+    // never show the prompt. Widening those too confined them to a narrow band
+    // around the centre and silently broke the separation placeCenters
+    // guarantees: on a 360x270 stage with a long prompt, 24 of 105 context-label
+    // pairs overlapped.
+    if (flips) {
+      var promptBox = sizeBox(String(cfg.promptText), maxTextW, lineHeight, measure);
+      if (promptBox.w > clampBox.w) clampBox.w = promptBox.w;
+      if (promptBox.h > clampBox.h) clampBox.h = promptBox.h;
+    }
     var cx = center.x;
     var cy = center.y;
     if (stageW > 0) cx = clampBox.w >= stageW ? stageW / 2 : clamp(center.x, clampBox.w / 2, stageW - clampBox.w / 2);
@@ -706,13 +740,22 @@
       // structure left the ones still to come with no arrow pointing at them,
       // and on the final marker there are none still to come, so exactly one
       // un-arrowed dot remained: the answer.
+      //
+      // Every dot that survives that rule sits on a structure an arrow already
+      // points at -- an answer, not a decoy -- so showTargetDot is the setting
+      // that governs them, and it was being ignored here: switching dots off
+      // still left the cycle dotted. showDecoyDots has nothing left to govern,
+      // because a marker still to come cannot be dotted at all without giving
+      // the last one away.
       var ci = state.idx < n ? layout.order[state.idx] : -1;
       var currentArrowed = ci >= 0 && (state.revealed || currentForward());
       var dotted = [];
-      for (var d = 0; d < state.idx && d < n; d++) {
-        dotted.push(layout.targets[layout.order[d]]);
+      if (cfg.showTargetDot) {
+        for (var d = 0; d < state.idx && d < n; d++) {
+          dotted.push(layout.targets[layout.order[d]]);
+        }
+        if (currentArrowed) dotted.push(layout.targets[ci]);
       }
-      if (currentArrowed) dotted.push(layout.targets[ci]);
       drawDots(svg, dotted);
 
       // Already-answered structures stay revealed (accumulating answer key).
@@ -725,11 +768,11 @@
       // arrow to the structure on answer.
       if (state.idx < n) {
         if (state.revealed) {
-          drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, boxClass(state.results[state.idx]));
+          drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, boxClass(state.results[state.idx]), undefined, true);
         } else if (currentForward()) {
-          drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true, undefined, layout.targets[ci].label);
+          drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true, undefined, layout.targets[ci].label, true);
         } else {
-          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false);
+          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false, undefined, undefined, true);
         }
       }
       updateBar();
@@ -843,7 +886,9 @@
       var stage = fitSvg(svg, img);
       if (!stage) return;
       var layout = computeSingleLayout(seed, stage, structures, cfg);
-      drawDots(svg, layout.targets);
+      // The back is the whole answer key, so every dot on it is a target dot;
+      // the front honours the same setting marker by marker.
+      if (cfg.showTargetDot) drawDots(svg, layout.targets);
       for (var b = 0; b < layout.targets.length; b++) {
         drawBox(svg, layout.centers[b], layout.targets[b], layout.targets[b].label, cfg, true);
       }
@@ -946,7 +991,8 @@
       // worse than a repeatable one, so fall back to the value both sides can
       // compute. The cost is that this card stops re-randomising while storage
       // stays broken.
-      if (!seedPersisted()) {
+      if (!seedPersisted(seed)) {
+        clearSeed();
         seed = hashString("" + activeOrdinal + structures.length);
         writeSeed(seed); // keep the in-memory mirror on the value actually used
       }
@@ -1009,22 +1055,27 @@
 
     if (contextLabels) {
       var centers = placeCenters(rng, stage, targets, cfg);
-      // The same dot rule as the single-box path below: whether a structure is
-      // dotted is a config decision, and drawing them unconditionally here meant
-      // showTargetDot and showDecoyDots were simply ignored in context mode.
-      if (cfg.showDecoyDots) {
-        drawDots(svg, targets);
-      } else if (targetDotVisible(cfg, isReverse, back)) {
-        drawDot(svg, active);
+      // Context boxes always carry their arrow: they are what makes the rest of
+      // the diagram readable, and withholding them left every ordinal of the note
+      // rendering an identical picture with nothing to say which structure was
+      // being asked about.
+      //
+      // What is withheld on a reverse question side is the TARGET'S DOT. The
+      // other structures are labelled and arrowed, the prompt label has neither,
+      // so there is no un-arrowed dot to identify by elimination and the learner
+      // locates the structure themselves. That is the same rule
+      // targetDotVisible() already applies on a non-context reverse front.
+      var dotTarget = targetDotVisible(cfg, isReverse, back);
+      for (var d = 0; d < targets.length; d++) {
+        if (d === activeIndex ? dotTarget : cfg.showDecoyDots) {
+          drawDot(svg, targets[d]);
+        }
       }
       for (var b = 0; b < targets.length; b++) {
         if (b === activeIndex) {
-          drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow, undefined, targets[b].label);
+          drawBox(svg, centers[b], targets[b], activeText, cfg, activeArrow, undefined, targets[b].label, true);
         } else {
-          // activeArrow, not `true`. On a reverse question side the active box
-          // withholds its arrow, so arrowing every OTHER box left exactly one
-          // dot with nothing pointing at it, and that dot was the answer.
-          drawBox(svg, centers[b], targets[b], targets[b].label, cfg, activeArrow);
+          drawBox(svg, centers[b], targets[b], targets[b].label, cfg, true);
         }
       }
     } else {
@@ -1036,7 +1087,7 @@
         drawDot(svg, active);
       }
       var center = placeCenter(rng, stage, active, cfg);
-      drawBox(svg, center, active, activeText, cfg, activeArrow, undefined, active.label);
+      drawBox(svg, center, active, activeText, cfg, activeArrow, undefined, active.label, true);
     }
 
     // Type-to-answer doesn't apply to reverse ("locate") cards; hide the box.
@@ -1048,12 +1099,7 @@
   function run(attempt) {
     attempt = attempt || 0;
     var img = getImage();
-    // A laid-out image is one that HAS a box. render() bails on a zero-sized
-    // image saying a later pass will retry, but the `ran` guard below means
-    // there is no later pass - only a resize ever recovered it. Treat "no size
-    // yet" the same as "no element yet" and retry here, where the retry lives.
-    var box = img ? img.getBoundingClientRect() : null;
-    if (!img || !box.width || !box.height) {
+    if (!img) {
       // DOM/image may not be ready yet (parse-mode clients); retry a bounded
       // number of times, then give up; a note with an empty Image field must
       // not spin setTimeout forever and peg the CPU.
@@ -1063,6 +1109,21 @@
         }, 16);
       }
       return;
+    }
+
+    // A laid-out image is one that HAS a box. render() bails on a zero-sized
+    // image saying a later pass will retry, and the `ran` guard below means
+    // there is no later pass, so the retry has to live here.
+    //
+    // Crucially this does NOT return: an image still loading also has a 0x0 box,
+    // and returning early skipped the load/error listeners and the resize
+    // binding below, which took a slow load from "blank until the next resize"
+    // to "blank for the rest of the review".
+    var box = img.getBoundingClientRect();
+    if ((!box.width || !box.height) && attempt < 30) {
+      window.setTimeout(function () {
+        run(attempt + 1);
+      }, 16);
     }
 
     // Several triggers below (load / error / safety-net timer) may all fire;

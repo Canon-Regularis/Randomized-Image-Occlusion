@@ -13,7 +13,7 @@ refreshed automatically the next time a profile is opened.
 | `prompt_text` | Text shown inside the prompt box on the question side. |
 | `max_placement_attempts` | How hard the placement algorithm tries to find a clean, in-bounds spot before falling back. |
 | `show_decoy_dots` | Show a marker on **every** structure, not just the tested one, so you must follow the arrow to the correct spot instead of recognising a lone dot. |
-| `show_context_labels` | Reveal the **other** structures' labels at shuffled positions as context (like "hide one, guess one"). Overrides `show_decoy_dots` when on. |
+| `show_context_labels` | Reveal the **other** structures' labels at shuffled positions as context (like "hide one, guess one"). Honours `show_decoy_dots` for those other structures; on a *reverse* question side the structure you are being asked to find is never dotted, or it would be the one dot with no arrow pointing at it. |
 | `interaction` | `"reveal"` = flip the card to see the label; `"type"` = type the structure's name and let Anki grade it (stronger active recall). In **multi-card** mode Anki's own grader compares against an escaped copy of the label, so a label containing `::`, `{{` or `}}` (e.g. `std::vector`) won't match what you type — use `"reveal"` or single-card mode for those. |
 | `direction` | `"forward"` = name the arrowed structure; `"reverse"` = given the name, locate the structure; `"both"` = a random mix, re-rolled each review (per marker in single-card mode). Applies to newly created cards. |
 | `card_mode` | `"multi"` = one card per structure (default); `"single"` = one card that cycles through every structure, re-randomised each review (forward markers are typed, reverse located). Applies to newly created cards. |
@@ -24,7 +24,13 @@ refreshed automatically the next time a profile is opened.
 
 Colours accept any CSS colour string, e.g. `#1a73e8` or `rgb(26,115,232)`.
 
-**Single-card mode** always draws a dot on *every* marker, so `show_target_dot`,
-`show_decoy_dots` and `show_context_labels` shape **multi-card** mode only. This
-is deliberate: on a single card a lone dot would give away a *locate it* marker's
-answer, and the cycle's running answer key needs every marker visible.
+**Single-card mode** dots only the markers you have already answered, plus the
+current one once it is revealed -- that is, exactly those an arrow points at.
+`show_target_dot` switches those dots off, here as everywhere. `show_decoy_dots`
+and `show_context_labels` shape **multi-card** mode only: a marker still to come
+cannot be dotted without giving the last one away, and the other labels are
+already on show as the answer key builds up.
+
+It used to dot every marker, which is what gave the answer away: on the last
+marker of the cycle every other structure had an arrow, so the single dot without
+one was the answer. A marker still to come is simply not dotted.

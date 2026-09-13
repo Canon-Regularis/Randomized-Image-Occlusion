@@ -84,11 +84,39 @@ def test_a_second_write_in_the_same_second_gets_its_own_file(tmp_path):
     first = scratch.write_bytes(b"older", ".png")
     second = scratch.write_bytes(b"newer", ".png")
 
-    assert first != second
-    with open(first, "rb") as handle:
-        assert handle.read() == b"older", "the earlier paste was overwritten"
+    assert first != second, "the second paste reused the first one's path"
     with open(second, "rb") as handle:
         assert handle.read() == b"newer"
+    # The first file is reclaimed once the second is safely written -- see
+    # test_a_new_paste_reclaims_the_one_it_replaces. What matters here is that
+    # the second write never lands ON the path the dialog is still holding.
+
+
+def test_a_new_paste_reclaims_the_one_it_replaces(tmp_path):
+    # Unique names stopped a second paste from overwriting the file the dialog
+    # was still showing, but they also removed the only in-session cleanup this
+    # class had: without this, twenty screenshot pastes leave twenty files in the
+    # temp directory until the dialog closes.
+    scratch, made = _scratch(tmp_path)
+    first = scratch.write_bytes(b"older", ".png")
+    second = scratch.write_bytes(b"newer", ".png")
+
+    assert first != second
+    assert not os.path.exists(first), "the superseded paste was left behind"
+    assert os.path.exists(second)
+    assert len(os.listdir(made[0])) == 1, os.listdir(made[0])
+
+
+def test_a_failed_paste_does_not_reclaim_the_live_one(tmp_path):
+    # The dialog is still pointing at the last good paste, so a write that fails
+    # must leave it exactly where it is.
+    scratch, made = _scratch(tmp_path)
+    good = scratch.write_bytes(b"good", ".png")
+    with pytest.raises(OSError):
+        scratch.write_via(lambda path: False, ".png")
+
+    assert os.path.exists(good), "a failed paste deleted the image in use"
+    assert os.listdir(made[0]) == [os.path.basename(good)]
 
 
 def test_encoder_failure_raises_oserror(tmp_path):

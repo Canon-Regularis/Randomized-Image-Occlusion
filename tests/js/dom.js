@@ -207,19 +207,37 @@ function makeEl(tag, ns, registry) {
         bottom: r.bottom === undefined ? r.top + r.height : r.bottom,
       };
     },
-    addEventListener(type, fn) {
-      (this._handlers[type] = this._handlers[type] || []).push(fn);
+    // The options bag is honoured rather than dropped. render.js registers
+    // its load/error handlers with `{once: true}` and relies on the browser
+    // detaching them; a mock that ignored that would happily re-enter a
+    // handler the browser would never call twice, so a lost `once` -- a second
+    // render, the seed minted again -- was unreachable to every test.
+    addEventListener(type, fn, options) {
+      // `true` is the capture flag, not a bag; capture changes ordering
+      // between ancestors, which this mock does not model, so only `once` is
+      // read here.
+      const once = !!(options && options !== true && options.once);
+      (this._handlers[type] = this._handlers[type] || []).push({ fn, once });
     },
     removeEventListener(type, fn) {
       const list = this._handlers[type];
       if (!list) return;
-      const i = list.indexOf(fn);
+      const i = list.findIndex((h) => h.fn === fn);
       if (i >= 0) list.splice(i, 1);
     },
     /** Invoke the listeners registered for `type` (tests drive clicks with this). */
     dispatch(type, event) {
       const ev = event || { preventDefault() {}, stopPropagation() {} };
-      (this._handlers[type] || []).forEach((fn) => fn(ev));
+      const list = this._handlers[type] || [];
+      // Detach before calling, as a browser does: a `once` handler that
+      // dispatches the same event again must not find itself still attached.
+      for (const h of [...list]) {
+        if (h.once) {
+          const i = list.indexOf(h);
+          if (i >= 0) list.splice(i, 1);
+        }
+        h.fn(ev);
+      }
     },
     focus() {
       this._focused = true;
@@ -270,7 +288,12 @@ function buildCard(opts) {
   img._rect = { width: o.stage.width, height: o.stage.height, left: 0, top: 0 };
   const stage = el("div");
   stage.id = "ro-stage";
-  stage.appendChild(img);
+  // `detachedImage` builds the card with the stage present but EMPTY, which is
+  // what a parse-mode client looks like before the card HTML has finished
+  // arriving. run() has a separate retry for that -- distinct from the one for
+  // an image that exists but is not laid out yet -- and until this option there
+  // was no way to reach it.
+  if (!o.detachedImage) stage.appendChild(img);
   const root = el("div");
   root.id = "ro-root";
 
@@ -307,14 +330,18 @@ function buildCard(opts) {
     answer.id = "ro-answer";
   }
 
-  const store = {};
+  // Session storage survives a page load, so the question and answer sides of
+  // one card share it. Passing `store` lets a test model that handoff; without
+  // it each card gets its own, which cannot express a value written by one page
+  // and read by the next.
+  const store = o.store || {};
   let seededFallback;
   if (o.seed !== undefined) {
-    // A degraded store cannot hand a seed back, so a pre-set seed is modelled
-    // where render.js would have left it: in the in-memory mirror. Putting it in
-    // `store` instead would make buildCard({ seed, storage }) mint a random seed
-    // and the test would stop being deterministic without saying so.
-    if (o.storage) seededFallback = String(o.seed);
+    // "unavailable" cannot hand a seed back at all, so a pre-set seed is modelled
+    // where render.js would have left it: in the in-memory mirror. Under "quota"
+    // reads still work, so the store is the faithful place -- and it is what lets
+    // a test set up the stale-key case.
+    if (o.storage === "unavailable") seededFallback = String(o.seed);
     else store[SEED_KEY] = String(o.seed);
   }
 
@@ -327,38 +354,74 @@ function buildCard(opts) {
   // was unreachable to every test. `timers: "manual"` queues the callbacks
   // instead, and the card exposes flushTimers()/fire() to step them.
   const manual = o.timers === "manual";
+  // A virtual clock, not a bag of callbacks. The delay used to be discarded,
+  // which made the three timers in run() -- the 0 ms post-render, the 16 ms
+  // retry and the 250 ms safety net -- indistinguishable: changing 250 to
+  // 25000 left every bootstrap test green, and nothing could assert that the
+  // safety net fires only after load and error have had their chance.
   const queued = [];
+  let clock = 0;
+  let ticket = 0;
   const listeners = new Map();
   const setTimeoutImpl = manual
-    ? (fn) => {
-        queued.push(fn);
-        return queued.length;
+    ? (fn, delay) => {
+        ticket += 1;
+        queued.push({ fn, at: clock + (Number(delay) || 0), seq: ticket });
+        return ticket;
       }
     : noop;
   const addEventListenerImpl = manual
-    ? (type, fn) => {
+    ? (type, fn, options) => {
+        const once = !!(options && options !== true && options.once);
         if (!listeners.has(type)) listeners.set(type, []);
-        listeners.get(type).push(fn);
+        listeners.get(type).push({ fn, once });
       }
     : noop;
 
-  /**
-   * Run queued callbacks until none are left, or `rounds` passes have gone by.
-   *
-   * Bounded on purpose: run()'s retry re-arms itself, so an image that never
-   * gains a size would spin here exactly as it would in a browser. The cap is
-   * what lets a test assert the retry gives up.
-   */
-  function flushTimers(rounds = 200) {
-    let ran = 0;
-    while (queued.length && ran < rounds) {
-      const batch = queued.splice(0, queued.length);
-      for (const fn of batch) {
-        fn();
-        ran += 1;
-        if (ran >= rounds) break;
+  /** The earliest timer still queued, or null. Ties break by arrival order. */
+  function nextDue() {
+    let best = null;
+    for (const timer of queued) {
+      const sooner = !best || timer.at < best.at;
+      if (sooner || (best && timer.at === best.at && timer.seq < best.seq)) {
+        best = timer;
       }
     }
+    return best;
+  }
+
+  /**
+   * Run due callbacks in delay order until none are left at or before
+   * `until`, or `rounds` of them have run.
+   *
+   * Bounded on purpose: the retry in run() re-arms itself, so an image that
+   * never gains a size would spin here exactly as it would in a browser. The
+   * cap is what lets a test assert the retry gives up.
+   */
+  function drain(until, rounds) {
+    let ran = 0;
+    while (ran < rounds) {
+      const timer = nextDue();
+      if (!timer || timer.at > until) break;
+      queued.splice(queued.indexOf(timer), 1);
+      // The clock only moves forward, to the moment this timer came due, so a
+      // callback that arms another one measures its delay from there.
+      clock = Math.max(clock, timer.at);
+      timer.fn();
+      ran += 1;
+    }
+    return ran;
+  }
+
+  function flushTimers(rounds = 200) {
+    return drain(Infinity, rounds);
+  }
+
+  /** Run only what is due within `ms` of now, leaving longer timers queued. */
+  function advanceTimers(ms, rounds = 200) {
+    const until = clock + ms;
+    const ran = drain(until, rounds);
+    clock = Math.max(clock, until);
     return ran;
   }
   const document = {
@@ -383,20 +446,25 @@ function buildCard(opts) {
     // different branches:
     //   "unavailable" - storage is switched off, so both calls throw;
     //   "quota"       - the store is full, so setItem throws while getItem
-    //                   returns null.
-    // Modelling only the throwing one leaves `stored !== null` in readSeed()
-    // untested, which is the branch that keeps the answer side on the same seed
-    // as the question.
+    //                   still serves whatever is ALREADY there.
+    // getItem used to return null unconditionally under "quota", which made the
+    // interesting case unrepresentable: a failed write while a previous card's
+    // seed is still stored. That is the one case where a presence check mistakes
+    // a stale value for a successful write, and no test could reach it.
     sessionStorage: {
       getItem: (k) => {
         if (o.storage === "unavailable") throw new Error("storage disabled");
-        if (o.storage === "quota") return null;
         return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null;
       },
       setItem: (k, v) => {
         if (o.storage === "unavailable") throw new Error("storage disabled");
         if (o.storage === "quota") throw new Error("quota exceeded");
         store[k] = String(v);
+      },
+      // Removal works even on a full store; only a disabled one refuses.
+      removeItem: (k) => {
+        if (o.storage === "unavailable") throw new Error("storage disabled");
+        delete store[k];
       },
     },
   };
@@ -421,12 +489,30 @@ function buildCard(opts) {
     render: (mint) => api.render(mint),
     img,
     flushTimers,
+    advanceTimers,
+    /** Put a `detachedImage` card's <img> into the stage, as a late parse does. */
+    attachImage: () => stage.appendChild(img),
     /** Re-run the bootstrap, as showing another card in the same webview does. */
     run: () => api.run(),
     /** Fire a window event render.js has subscribed to (only with manual timers). */
-    fire: (type) => (listeners.get(type) || []).forEach((fn) => fn()),
+    fire: (type) => {
+      const list = listeners.get(type) || [];
+      for (const h of [...list]) {
+        if (h.once) {
+          const i = list.indexOf(h);
+          if (i >= 0) list.splice(i, 1);
+        }
+        h.fn();
+      }
+    },
     listenerCount: (type) => (listeners.get(type) || []).length,
     pendingTimers: () => queued.length,
+    /** The delays still queued, soonest first. Lets a test name the timer. */
+    timerDelays: () =>
+      queued
+        .slice()
+        .sort((a, b) => a.at - b.at || a.seq - b.seq)
+        .map((timer) => timer.at - clock),
   };
 }
 
@@ -469,16 +555,28 @@ const dotsOf = (svg) =>
     .filter((n) => n.tagName === "circle" && n._classes.has("ro-dot"))
     .map((n) => ({ x: Number(n.attributes.cx), y: Number(n.attributes.cy) }));
 
-/** Arrow segments, as endpoints. Where an arrow points is the point of it. */
+// Below this a leader line is not something a learner can see, so counting it
+// as an arrow would be a lie the elimination invariant believed: a zero-length
+// <line> still reports x2,y2 sitting on its target, which is exactly what
+// "this dot is arrowed" was decided by.
+const MIN_VISIBLE_ARROW = 1;
+
+/**
+ * Visible arrow segments, as endpoints. Where an arrow points is the point of
+ * it -- and one too short to render points nowhere, so it is dropped here
+ * rather than counted.
+ */
 const arrowsOf = (svg) =>
   svg.childNodes
     .filter((n) => n.tagName === "line" && n._classes.has("ro-arrow"))
-    .map((n) => ({
-      x1: Number(n.attributes.x1),
-      y1: Number(n.attributes.y1),
-      x2: Number(n.attributes.x2),
-      y2: Number(n.attributes.y2),
-    }));
+    .map((n) => {
+      const x1 = Number(n.attributes.x1);
+      const y1 = Number(n.attributes.y1);
+      const x2 = Number(n.attributes.x2);
+      const y2 = Number(n.attributes.y2);
+      return { x1, y1, x2, y2, length: Math.hypot(x2 - x1, y2 - y1) };
+    })
+    .filter((a) => a.length >= MIN_VISIBLE_ARROW);
 
 // `makeEl` is exported so the editor's DOM mock (marker_dom.js) builds its tree
 // from the same element implementation: one mock to keep honest, not two.

@@ -95,14 +95,30 @@ function assertArrowPointsAt(svg, structure, expectedText, message) {
     Math.abs(cross) / span < 1e-6,
     `${message}: arrow tail is not on the line from the box centre to the target`,
   );
-  assert.ok(
-    toTail.x * toTarget.x + toTail.y * toTarget.y > 0,
-    `${message}: the arrow leaves the box on the side away from the target`,
-  );
-  assert.ok(
-    Math.hypot(toTail.x, toTail.y) <= span + 1e-6,
-    `${message}: the arrow starts past the target, so it is drawn backwards`,
-  );
+  // Which border the arrow leaves from depends on where the target is.
+  const inside =
+    Math.abs(toTarget.x) <= box.w / 2 + 1e-6 && Math.abs(toTarget.y) <= box.h / 2 + 1e-6;
+  const dot = toTail.x * toTarget.x + toTail.y * toTarget.y;
+  if (inside) {
+    // The target sits underneath its own box. Leaving from the border toward it
+    // would put the tail PAST the target and draw the line back into the box,
+    // where it is hidden; stopping at the target draws nothing at all. So the
+    // arrow leaves from the opposite border and crosses to the target.
+    assert.ok(dot < 0,
+      `${message}: the target is inside its own box, so the arrow must leave ` +
+      "from the opposite border or it is drawn underneath it");
+  } else {
+    assert.ok(dot > 0,
+      `${message}: the arrow leaves the box on the side away from the target`);
+    assert.ok(Math.hypot(toTail.x, toTail.y) <= span + 1e-6,
+      `${message}: the arrow starts past the target, so it is drawn backwards`);
+  }
+
+  // Either way it has to be visible. "Not past the target" is satisfied by a
+  // zero-length line, by the box centre, and by the target itself.
+  const length = Math.hypot(hit.x2 - hit.x1, hit.y2 - hit.y1);
+  assert.ok(length > 1,
+    `${message}: the arrow is ${length.toFixed(3)}px long, so nothing is drawn`);
 }
 
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
@@ -422,6 +438,42 @@ test("the bootstrap renders the card and mints a seed", () => {
   assert.ok(SEED_KEY in card.store, "a question view must mint and store a seed");
 });
 
+test("the safety net fires only after load and error have had their chance", () => {
+  // The 250 ms net is for clients where neither event ever arrives, so it has
+  // to come last. The mock used to discard the delay, which made it
+  // indistinguishable from the 0 ms post-render and the 16 ms retry: raising
+  // 250 to 25 seconds -- a blank card for the first half-minute of every
+  // review -- left every bootstrap test green.
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  assert.deepEqual(card.timerDelays(), [250],
+    "a still-loading image should arm the safety net and nothing else");
+
+  assert.equal(card.advanceTimers(249), 0, "the safety net fired early");
+  assert.equal(boxesOf(card.svg).length, 0, "nothing is drawn before it fires");
+
+  card.advanceTimers(1);
+  assert.equal(boxesOf(card.svg).length, 1, "the safety net never fired");
+});
+
+test("the image's load handlers do not accumulate across cards", () => {
+  // Anki reuses ONE webview for every card, so run() is called again for each
+  // show against the same <img>. load and error are registered `{once: true}`
+  // precisely so the browser detaches them; without it every card reviewed
+  // leaves another stale closure attached, and one load event then re-enters
+  // every show of the session.
+  const card = buildCard({ structures: ONE, timers: "manual", config: DOTS_ON });
+  for (let show = 0; show < 5; show += 1) {
+    card.img.dispatch("load");
+    card.flushTimers();
+    card.run(); // the next card, same webview
+  }
+  card.img.dispatch("load");
+
+  const attached = (card.img._handlers.load || []).length;
+  assert.ok(attached <= 1,
+    `${attached} load handlers are still attached after six shows`);
+});
+
 test("the bootstrap renders exactly once per show", () => {
   // load, error and a safety-net timer can all fire. Without the `ran` guard a
   // second pass would mint a fresh seed and the box would jump mid-review.
@@ -455,6 +507,73 @@ test("an image with no size yet is retried, not abandoned", () => {
   card.flushTimers();
 
   assert.equal(boxesOf(card.svg).length, 1, "the card never recovered once laid out");
+});
+
+test("a load event while the image has no size does not waste the render", () => {
+  // load/error call go(), and go() arms a once-per-show guard. Arming it while
+  // there is still nothing to measure would leave the retry with nothing to do
+  // and the card blank for the whole review.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  card.img.dispatch("load"); // fires while the image is still 0x0
+  card.flushTimers(3); // a few retry rounds, well short of the 30-attempt budget
+  assert.equal(boxesOf(card.svg).length, 0, "nothing can be drawn without a size");
+
+  card.img._rect = { width: 800, height: 600, left: 0, top: 0 };
+  card.flushTimers();
+  assert.equal(boxesOf(card.svg).length, 1,
+    "the early load event burned the once-per-show guard");
+});
+
+test("an image that is still loading keeps its listeners and its resize binding", () => {
+  // A zero-sized <img> is also what a still-loading image looks like. Returning
+  // early on "no size" skipped the load/error listeners AND the resize binding
+  // below them, which took a slow load from "blank until the next resize" to
+  // "blank for the rest of the review" with no way back.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  assert.equal(card.listenerCount("resize"), 1,
+    "the resize binding was skipped while the image had no size");
+
+  card.flushTimers(500); // let the bounded retry give up
+  assert.equal(boxesOf(card.svg).length, 0);
+
+  card.img._rect = { width: 800, height: 600, left: 0, top: 0 };
+  card.fire("resize");
+  card.flushTimers();
+  assert.equal(boxesOf(card.svg).length, 1,
+    "a later resize could not rescue the card");
+});
+
+test("a card with no image element yet is retried, not abandoned", () => {
+  // A parse-mode client can run the script before the card HTML is in the DOM,
+  // so there is no <img> to find at all. That is a different miss from an image
+  // that exists but has no size, and it has its own retry; splitting the two
+  // guards apart left this one with nothing exercising it.
+  const card = buildCard({
+    structures: ONE, timers: "manual", detachedImage: true, config: DOTS_ON,
+  });
+  card.flushTimers(5);
+  assert.equal(boxesOf(card.svg).length, 0, "there is nothing to draw on yet");
+  assert.ok(card.pendingTimers() > 0, "the retry gave up before the image existed");
+
+  card.attachImage();
+  card.flushTimers();
+
+  assert.equal(boxesOf(card.svg).length, 1, "the card never recovered once the image arrived");
+});
+
+test("the retry for a card whose image never arrives is bounded", () => {
+  // A note with an empty Image field has no <img> and never will, and must not
+  // spin setTimeout forever.
+  const card = buildCard({
+    structures: ONE, timers: "manual", detachedImage: true, config: DOTS_ON,
+  });
+  const ran = card.flushTimers(500);
+  assert.ok(ran < 500, `the retry ran ${ran} times without stopping`);
+  assert.equal(card.pendingTimers(), 0, "the retry is still armed after giving up");
 });
 
 test("the retry for an image that never appears is bounded", () => {
@@ -523,9 +642,17 @@ test("a new question view re-randomises rather than reusing the stored seed", ()
  * broken. Reverse + context labels leaked exactly this way, undetected, because
  * no test ever rendered that pair.
  */
+const rawArrowCount = (svg) =>
+  svg.childNodes.filter((n) => n.tagName === "line" && n._classes.has("ro-arrow")).length;
+
 function assertNoEliminationLeak(card, structure, message) {
   const dots = dotsOf(card.svg);
   const arrows = arrowsOf(card.svg);
+  // arrowsOf drops lines too short to see. If one was dropped here, the
+  // learner is looking at an un-arrowed dot while everything below counts it
+  // as arrowed -- the leak would be real and this check would miss it.
+  assert.equal(arrows.length, rawArrowCount(card.svg),
+    `${message}: an arrow was drawn too short to be visible`);
   const target = project(structure);
   const unarrowed = dots.filter(
     (d) => !arrows.some((a) => near(a.x2, d.x, 1e-6) && near(a.y2, d.y, 1e-6)),
@@ -577,9 +704,28 @@ test("an arrow never overshoots a target inside its own box", () => {
     const target = { x: 0.5 * 200, y: 0.3 * 150 };
     const toTarget = Math.hypot(target.x - box.cx, target.y - box.cy);
     const toTail = Math.hypot(arrow.x1 - box.cx, arrow.y1 - box.cy);
-    assert.ok(toTail <= toTarget + 1e-6,
-      `seed ${seed}: the arrow starts ${toTail.toFixed(1)}px from the box centre ` +
-      `but the target is only ${toTarget.toFixed(1)}px away, so it points backwards`);
+    const inside =
+      Math.abs(target.x - box.cx) <= box.w / 2 + 1e-6 &&
+      Math.abs(target.y - box.cy) <= box.h / 2 + 1e-6;
+    if (inside) {
+      // Leaves from the opposite border, so it crosses the box to reach the
+      // target rather than being drawn underneath it.
+      const dot = (arrow.x1 - box.cx) * (target.x - box.cx) +
+        (arrow.y1 - box.cy) * (target.y - box.cy);
+      assert.ok(dot < 0,
+        `seed ${seed}: the target is inside its own box but the arrow leaves ` +
+        "from the near border, so it is hidden underneath it");
+    } else {
+      assert.ok(toTail <= toTarget + 1e-6,
+        `seed ${seed}: the arrow starts ${toTail.toFixed(1)}px from the box centre ` +
+        `but the target is only ${toTarget.toFixed(1)}px away, so it points backwards`);
+    }
+    assert.ok(onBorder(arrow.x1, arrow.y1, box),
+      `seed ${seed}: the arrow starts at (${arrow.x1.toFixed(1)}, ` +
+      `${arrow.y1.toFixed(1)}), which is not on the box outline`);
+    const length = Math.hypot(arrow.x2 - arrow.x1, arrow.y2 - arrow.y1);
+    assert.ok(length > 1,
+      `seed ${seed}: the arrow is ${length.toFixed(3)}px long, so nothing is drawn`);
   }
 });
 
@@ -604,6 +750,81 @@ test("a prompt wider than the label keeps the box on the image", () => {
     assert.ok(near(box.cx, other.cx, 1e-6) && near(box.cy, other.cy, 1e-6),
       `seed ${seed}: the box moved between question and answer`);
   }
+});
+
+test("every card of a note asks a different question", () => {
+  // The elimination check above fires only when exactly ONE dot is un-arrowed,
+  // so it is satisfied by removing every arrow -- which is how a "fix" that made
+  // all N cards of a reverse context note render identically passed it. A
+  // question side that cannot identify its own target is not safe, it is broken,
+  // so the two properties have to be asserted together.
+  const snapshot = (card) =>
+    JSON.stringify({
+      boxes: boxesOf(card.svg).map((b) => [b.text, Math.round(b.cx), Math.round(b.cy)]),
+      dots: dotsOf(card.svg).map((d) => [Math.round(d.x), Math.round(d.y)]),
+      arrows: arrowsOf(card.svg).map((a) => [
+        Math.round(a.x1), Math.round(a.y1), Math.round(a.x2), Math.round(a.y2),
+      ]),
+    });
+
+  for (const contextLabels of [false, true]) {
+    for (const direction of ["forward", "reverse"]) {
+      const seen = new Map();
+      for (const activeOrdinal of [1, 2, 3, 4]) {
+        const card = side({ direction, contextLabels, activeOrdinal, seed: 7 });
+        const shot = snapshot(card);
+        const clash = seen.get(shot);
+        assert.equal(clash, undefined,
+          `${direction}, contextLabels=${contextLabels}: ordinals ${clash} and ` +
+          `${activeOrdinal} render an identical question side, so neither card ` +
+          "says which structure it is asking about");
+        seen.set(shot, activeOrdinal);
+      }
+    }
+  }
+});
+
+test("every context label is joined to its own structure", () => {
+  // The context labels are only useful if you can tell which structure each one
+  // names. They keep their arrows on every side, including a reverse question
+  // side where the ACTIVE box withholds its own.
+  for (const direction of ["forward", "reverse"]) {
+    for (const back of [false, true]) {
+      const card = side({ direction, back, contextLabels: true, activeOrdinal: 2, seed: 7 });
+      const arrows = arrowsOf(card.svg);
+      const expected = direction === "reverse" && !back
+        ? STRUCTURES.length - 1 // the active box withholds its arrow
+        : STRUCTURES.length;
+      assert.equal(arrows.length, expected,
+        `${direction}, back=${back}: expected ${expected} arrows, got ${arrows.length}`);
+      for (const structure of STRUCTURES) {
+        if (direction === "reverse" && !back && structure.ord === 2) continue;
+        const at = project(structure);
+        assert.ok(arrows.some((a) => near(a.x2, at.x, 1e-6) && near(a.y2, at.y, 1e-6)),
+          `${direction}, back=${back}: nothing points at ${structure.label}`);
+      }
+    }
+  }
+});
+
+test("a long prompt does not squeeze the boxes that never show it", () => {
+  // Only a box that flips between the prompt and its label needs clamping for
+  // both. Clamping the context labels and the answer key for a prompt they can
+  // never display confined them to a band around the centre and broke the
+  // separation placeCenters guarantees.
+  const short = { showDecoyDots: true, promptText: "?" };
+  const long = { showDecoyDots: true, promptText: "Which structure is indicated here?" };
+  const spread = (config) => {
+    const card = side({ direction: "forward", contextLabels: true, activeOrdinal: 1,
+                        seed: 7, config });
+    const others = boxesOf(card.svg).filter((b) => b.text !== "?");
+    const xs = others.map((b) => b.cx);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  assert.ok(near(spread(long), spread(short), 1e-6),
+    `the context labels spread ${spread(long).toFixed(1)}px with a long prompt but ` +
+    `${spread(short).toFixed(1)}px with a short one, so they were clamped for a ` +
+    "prompt they never show");
 });
 
 test("context labels honour the dot settings", () => {
@@ -660,6 +881,39 @@ test("the answer side agrees with the question side when the seed cannot be stor
         `${storage}, ordinal ${activeOrdinal}: the card changed direction between ` +
         `question and answer`);
     }
+  }
+});
+
+test("a failed write is detected even when a previous card's seed is stored", () => {
+  // SEED_KEY is one global key that every card rewrites, so from the second card
+  // of a session onward something is always there. Asking "is anything stored"
+  // rather than "did MY write land" reports success for a write that threw on
+  // quota, and the answer side then reproduces the wrong layout entirely.
+  const structures = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Vena cava" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
+    { ord: 4, x: 0.35, y: 0.6, label: "Pulmonary trunk" },
+  ];
+  for (const activeOrdinal of [1, 2, 3, 4]) {
+    // One store shared by both page loads, holding a PREVIOUS card's seed.
+    const shared = { [SEED_KEY]: "4242" };
+    const options = {
+      structures, direction: "both", activeOrdinal,
+      storage: "quota", store: shared, config: DOTS_ON,
+    };
+    const front = buildCard(options);
+    front.render(true); // mints, and its write throws
+    const back = buildCard(Object.assign({}, options, { back: true }));
+    back.render(false);
+
+    const f = boxesOf(front.svg)[0];
+    const b = boxesOf(back.svg)[0];
+    assert.ok(near(f.cx, b.cx, 1e-6) && near(f.cy, b.cy, 1e-6),
+      `ordinal ${activeOrdinal}: the box moved from (${f.cx}, ${f.cy}) to ` +
+      `(${b.cx}, ${b.cy}); the question side kept a seed it could not store`);
+    assert.equal(front.typeBox.style.display, back.typeBox.style.display,
+      `ordinal ${activeOrdinal}: the card changed direction between question and answer`);
   }
 });
 

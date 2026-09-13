@@ -53,6 +53,24 @@ class LoadedNote:
     back_extra: str
 
 
+#: Shown when a note's payload cannot be turned into structures at all.
+_MALFORMED = "this note's structure data is malformed"
+
+def _stored_flag(value: Any) -> bool | None:
+    """A boolean the payload actually stored, or ``None`` for "not stored".
+
+    ``None`` covers both an absent key and one whose value has no boolean
+    reading. render.js treats a null as absent and falls back to the global
+    config, so reporting either as a stored ``False`` would bake the opposite of
+    what the note currently renders with into the next save. Returning ``None``
+    lets the caller apply its own default, which is the rule everywhere else.
+    """
+    if isinstance(value, (bool, int, float, str)):
+        # coerce_bool never falls back for these, so the default is irrelevant.
+        return coerce_bool(value, False)
+    return None
+
+
 class _ImgSrcExtractor(HTMLParser):
     """Pulls the ``src`` of the first ``<img>`` out of an ``Image`` field.
 
@@ -168,29 +186,36 @@ class NoteReader:
                 self._structures(payload["structures"]),
                 Direction.coerce(payload.get("direction"), Direction.FORWARD),
                 CardMode.coerce(payload.get("mode"), CardMode.MULTI),
-                # `is not None`, not `in`: render.js reads a null as ABSENT and
-                # falls back to the global config, so storing it as a False
-                # would bake the opposite setting in on the next save.
-                coerce_bool(payload.get("contextLabels"), False)
-                if payload.get("contextLabels") is not None
-                else None,
+                _stored_flag(payload.get("contextLabels")),
                 Interaction.coerce(payload.get("interaction"), Interaction.REVEAL)
                 if payload.get("interaction") is not None
                 else None,
             )
-        raise ValueError("this note's structure data is malformed")
+        raise ValueError(_MALFORMED)
 
     @staticmethod
     def _structures(entries: Any) -> StructureSet:
         """``StructureSet.from_dicts``, holding this module's error contract.
 
-        ``from_dicts`` indexes ``data["ord"]`` and calls ``float(data["x"])``,
-        so a single corrupt entry escapes as KeyError or TypeError. This class
-        promises ValueError for unreadable user data and reserves anything else
-        for a genuine bug; the Browser turns a ValueError into a readable
-        message, so a KeyError reached the user as a bare "'ord'".
+        ``from_dicts`` indexes ``data["ord"]`` and calls ``int``/``float`` on the
+        results, so one corrupt entry escapes as KeyError, TypeError or -- for a
+        value ordinary JSON can carry, such as ``1e999`` or a 400-digit integer --
+        OverflowError. ``render_config`` already catches OverflowError on both its
+        numeric paths for exactly this reason.
+
+        The class promises ValueError for unreadable user data and reserves
+        anything else for a genuine bug. The Browser catches ``Exception`` and
+        prints it, so a bare ``KeyError('ord')`` reached the user as ``'ord'``;
+        the point of this method is the message, not the crash.
+
+        A message that already reads well is kept. ``StructureSet`` goes to
+        trouble to say "ordinals must be exactly 1..N with no gaps or duplicates;
+        got [1, 3]", which is something a user can act on, and replacing it with
+        "malformed" threw that away.
         """
         try:
             return StructureSet.from_dicts(entries)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("this note's structure data is malformed") from exc
+        except ValueError as exc:
+            raise ValueError(str(exc) or _MALFORMED) from exc
+        except (KeyError, TypeError, OverflowError) as exc:
+            raise ValueError(_MALFORMED) from exc

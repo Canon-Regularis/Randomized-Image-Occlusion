@@ -47,6 +47,9 @@ class PasteScratch:
         #: collided, and a colliding write replaced the bytes of the paste the
         #: canvas was still displaying.
         self._sequence = 0
+        #: The last file written. Superseded by the next successful write,
+        #: which is when it can be removed.
+        self._latest: str | None = None
 
     @property
     def directory(self) -> str | None:
@@ -99,6 +102,7 @@ class PasteScratch:
         close handler.
         """
         directory, self._directory = self._directory, None
+        self._latest = None
         if directory is not None:
             shutil.rmtree(directory, ignore_errors=True)
 
@@ -113,6 +117,15 @@ class PasteScratch:
             with contextlib.suppress(OSError):
                 os.unlink(partial)
             raise
+        # Every paste gets its own name so a second one cannot land on the file
+        # the dialog is still showing. That removed the only reclamation this
+        # class had, though -- twenty screenshot pastes meant twenty files kept
+        # until close -- so the one it supersedes is dropped here, once the new
+        # file is safely in place.
+        previous, self._latest = self._latest, path
+        if previous is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(previous)
         return path
 
 

@@ -25,14 +25,14 @@ const ALL = [
 const SEED = 20240607;
 
 /** Open a single-mode card's front and hand back the cycler's pieces. */
-function openCycler(structures, direction, interaction, seed) {
+function openCycler(structures, direction, interaction, seed, config) {
   const card = buildCard({
     structures,
     mode: "single",
     direction,
     interaction,
     seed,
-    config: { showDecoyDots: true },
+    config: Object.assign({ showDecoyDots: true }, config),
   });
   card.render(false);
   const bar = card.ids.get("ro-cycler");
@@ -279,6 +279,48 @@ test("backward markers never ask you to type, whatever the interaction", () => {
     assert.equal(c.input.style.display, "none");
     assert.equal(c.button.textContent, "Reveal");
     assert.ok(c.forwards.every((f) => f === false), "every reverse marker is a locate marker");
+  }
+});
+
+test("single-card mode honours the target-dot setting", () => {
+  // The setting says "draw a dot on the structure the arrow points at", and
+  // that is exactly the set single-card mode draws -- but it consulted neither
+  // dot setting, so switching dots off left the whole cycle dotted anyway.
+  for (const showTargetDot of [true, false]) {
+    const c = openCycler(ALL, "forward", "reveal", SEED, { showTargetDot });
+    c.button.dispatch("click"); // reveal marker one
+    c.button.dispatch("click"); // next
+    c.button.dispatch("click"); // reveal marker two
+    // Both dot sources are now in play: the accumulating answer key and the
+    // current marker's own dot.
+    const drawn = dotsOf(c.card.svg).length;
+    if (showTargetDot) {
+      assert.ok(drawn > 0, "an answered marker should be dotted");
+    } else {
+      assert.equal(drawn, 0, `${drawn} dots drawn with the dot setting off`);
+    }
+  }
+});
+
+test("the single-card answer key honours the target-dot setting", () => {
+  // The back is the whole key revealed at once, so every dot on it is a target
+  // dot; it used to dot every structure whatever the setting said.
+  for (const showTargetDot of [true, false]) {
+    const back = buildCard({
+      structures: ALL,
+      mode: "single",
+      direction: "forward",
+      interaction: "reveal",
+      seed: SEED,
+      back: true,
+      config: { showDecoyDots: true, showTargetDot },
+    });
+    back.render(false);
+    assert.equal(boxesOf(back.svg).length, ALL.length,
+      "the answer key must label every structure whatever the dots do");
+    assert.equal(dotsOf(back.svg).length, showTargetDot ? ALL.length : 0,
+      `the answer key drew ${dotsOf(back.svg).length} dots with the setting ` +
+      `${showTargetDot ? "on" : "off"}`);
   }
 });
 
