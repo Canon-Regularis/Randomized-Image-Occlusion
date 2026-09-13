@@ -88,7 +88,8 @@ You can leave everything on its sensible defaults, or turn on:
   C++/Rust name like `std::vector` - Anki's type grader compares against an
   escaped form, so use *reveal* or *single-card* mode for those labels.)
 - **Reverse cards** - instead of *"what is this?"*, get *"where is the X?"* and
-  find it. Or **both** directions per structure.
+  find it. Or **both**: still one card per structure, but which way it asks
+  is re-rolled at random each review.
 - **Context labels** - show the surrounding labels while you answer, the way
   "hide one, guess one" occlusion does.
 - **Single-card mode** - put a whole diagram on **one** card that cycles through

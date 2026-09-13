@@ -36,7 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Which cards to generate per note:
     #   "forward" = name the arrowed structure (default),
     #   "reverse" = given the name, locate the structure,
-    #   "both"    = one of each per structure.
+    #   "both"    = one card per structure, asked either way, re-rolled each review.
     "direction": "forward",
     # Card model:
     #   "multi"  = one card per structure (default),

@@ -67,7 +67,7 @@ class Direction(_StrChoice):
 
     FORWARD = "forward"  # name the arrowed structure
     REVERSE = "reverse"  # given the name, locate the structure
-    BOTH = "both"  # one forward + one reverse card per structure
+    BOTH = "both"  # one card per structure, asked either way, re-rolled each review
 
 
 class Interaction(_StrChoice):
