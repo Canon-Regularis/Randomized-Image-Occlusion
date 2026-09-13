@@ -19,6 +19,7 @@ import base64
 import json
 import mimetypes
 import os
+import traceback
 from typing import Any
 
 from aqt.qt import (
@@ -449,7 +450,12 @@ class MarkerDialog(QDialog):
             {"x": s.target.x, "y": s.target.y, "label": s.label}
             for s in prefill.structures.ordered
         ]
-        if self._read_data_url(path) is None:
+        # Read ONCE and pass the result on. Reading to test and then reading
+        # again to display doubled the I/O and the base64 encode of the whole
+        # image, synchronously inside __init__, and left a window in which the
+        # second read could fail after the first had succeeded.
+        data_url = self._read_data_url(path)
+        if data_url is None:
             # The file exists but could not be read (locked, or permissions).
             # Treated exactly like a missing one: without the image the canvas
             # cannot show the markers, and leaving Save enabled over a blank
@@ -461,7 +467,7 @@ class MarkerDialog(QDialog):
                 'Image file could not be read. Click "Replace image…" to reload it.'
             )
             return
-        self._display_from_path(path, markers)
+        self._push_image(data_url, markers)
 
     def _choose_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -526,9 +532,10 @@ class MarkerDialog(QDialog):
         the file has actually been read, so an unreadable one leaves the dialog
         on the image it already had rather than in a half-changed state.
 
-        A replacement wipes every marker and the dialog has no undo, so this is
-        also where the user is asked to confirm losing that work; late enough
-        that we know an image is genuinely on its way in.
+        ``confirm`` is False when the caller has already asked. The paste flow
+        asks before writing anything to disk, because writing first meant a
+        declined replacement had already put the new bytes where the dialog was
+        pointing.
         """
         if confirm and not self._confirm_replacing_markers():
             return
@@ -648,8 +655,9 @@ class MarkerDialog(QDialog):
         # Acting now would persist the note the user just cancelled and touch
         # torn-down widgets, so bail before doing anything.
         if self._closed:
-            # Nothing else will run now, so this is the last chance to clear
-            # a pasted image's scratch copy.
+            # _on_finished has already discarded the scratch: during this
+            # round-trip no op is running, so it does not defer to us. Kept as a
+            # belt-and-braces call because discard() is idempotent.
             self._scratch.discard()
             return
         # Markers are now captured for the image that was shown when Save ran.
@@ -683,9 +691,13 @@ class MarkerDialog(QDialog):
         self._op_running = True
         try:
             self._saver.save(self, result)
-        except Exception as exc:
+        except Exception:
             self._abort_save()
-            showWarning(f"Could not save the card:\n\n{exc}")
+            # The full traceback, as launcher.py does for the same class of
+            # failure: one line is rarely enough to act on a bug report.
+            showWarning(
+                "Could not save the card:\n\n" + traceback.format_exc()
+            )
 
     def _structures_from_markers(self, markers: Any) -> StructureSet | None:
         """Validate the raw markers from the canvas into a StructureSet.
