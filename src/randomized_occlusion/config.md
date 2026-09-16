@@ -26,12 +26,15 @@ dialog writes them back as you use it.
   any image.
 - `min_arrow_fraction` -- Shortest allowed arrow length, as a fraction of the
   image's diagonal. Larger values push the prompt box further from the structure.
+  Clamped to 0-1, since a fraction of the diagonal cannot be more than all of it.
 - `show_target_dot` -- Draw a dot on the structure the arrow points at. (Hidden
   on a *reverse* question side, where a lone dot would give away the location
   you're being asked to find.)
 - `prompt_text` -- Text shown inside the prompt box on the question side.
 - `max_placement_attempts` -- How hard the placement algorithm tries to find a
-  clean, in-bounds spot before falling back.
+  clean, in-bounds spot before falling back. Clamped to 1-1000: the search runs
+  once per structure while a card is drawn, so an absurd value would freeze the
+  reviewer rather than improve the layout.
 - `show_decoy_dots` -- Show a marker on **every** structure, not just the tested
   one, so you must follow the arrow to the correct spot instead of recognising a
   lone dot.
