@@ -39,8 +39,17 @@ __all__ = [
 #: Every extension the add-on will open, however the image arrives. The file
 #: picker's filter is generated from it below, so the two ways in (choosing a
 #: file and pasting one) cannot start disagreeing about what an image is.
+#: ``.jfif``/``.jpe`` because Windows names JPEGs that way when they come from
+#: a browser, and ``.avif``/``.ico`` because Anki's own editor accepts them; all
+#: four were refused here with "There is no image on the clipboard", which names
+#: the wrong cause. ``.bmp`` is deliberately pickable but not pasteable.
+#: :data:`_MIME_SUFFIXES` is unchanged: it decides what *written* bytes are
+#: called, and every JPEG the add-on writes should still be called ``.jpg``.
 SUPPORTED_SUFFIXES: frozenset[str] = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+    {
+        ".png", ".jpg", ".jpeg", ".jfif", ".jpe", ".gif", ".webp",
+        ".avif", ".bmp", ".ico", ".svg",
+    }
 )
 
 #: The ``QFileDialog`` name filter for :data:`SUPPORTED_SUFFIXES`.

@@ -104,7 +104,14 @@ def test_valid_colors_are_accepted():
 
 
 def test_malicious_or_malformed_colors_fall_back_to_default():
-    for color in ["red; } </style><script>x</script>", "#nothex", "url(x)", ""]:
+    # "#abcde"/"#aabbcce": CSS recognises 3, 4, 6 and 8 hex digits and nothing
+    # else, so a 5- or 7-digit typo used to pass the check, get written verbatim,
+    # and have the whole declaration dropped by the browser -- losing the colour
+    # silently instead of falling back to the shipped default.
+    for color in [
+        "red; } </style><script>x</script>", "#nothex", "url(x)", "",
+        "#abcde", "#aabbcce", "color-mix(in srgb, red, blue)", "var(--x)",
+    ]:
         assert (
             RenderConfig.from_mapping({"accent_color": color}).accent_color
             == DEFAULT_CONFIG["accent_color"]

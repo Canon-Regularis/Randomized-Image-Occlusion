@@ -31,8 +31,12 @@ __all__ = ["RenderConfig"]
 # A conservative allow-list for CSS colours. These values are written verbatim
 # into the note type's stylesheet, so anything not matching (which could break
 # the CSS or inject rules) is rejected in favour of the default.
+# `{3,8}` also admitted 5- and 7-digit hex, which CSS does not recognise: the
+# value passed the check, was written verbatim, and the browser dropped the whole
+# declaration -- so a typo silently lost the colour instead of falling back to
+# the shipped default. Only the four real lengths are accepted.
 _COLOR_RE = re.compile(
-    r"^(#[0-9A-Fa-f]{3,8}"
+    r"^(#(?:[0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})"
     r"|[A-Za-z]+"
     r"|(?:rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\))$"
 )

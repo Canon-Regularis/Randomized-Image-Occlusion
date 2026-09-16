@@ -111,7 +111,11 @@ class ConfigService:
     def _clamp_zoom(zoom: float) -> float:
         try:
             value = float(zoom)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError: float(huge_int). A hand-edited config can hold an
+            # integer literal too large to convert, and this read happens while
+            # the dialog is opening, so it must stay total. The sibling coercions
+            # in config/render_config.py catch it for the same reason.
             return DEFAULT_EDITOR_ZOOM
         if not math.isfinite(value):
             return DEFAULT_EDITOR_ZOOM

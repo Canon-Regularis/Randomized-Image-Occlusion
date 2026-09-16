@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from randomized_occlusion.editor.clipboard_image import (
+    _MIME_SUFFIXES,
     IMAGE_FILE_FILTER,
     PASTE_SUFFIX,
     SUPPORTED_SUFFIXES,
@@ -128,6 +129,28 @@ def test_paste_filename_handles_an_empty_stamp():
 def test_paste_filename_rejects_an_unsupported_suffix():
     assert paste_filename("stamp", ".exe") == "paste-stamp.png"
     assert paste_filename("stamp", "") == "paste-stamp.png"
+
+
+def test_the_jpeg_aliases_windows_writes_are_openable():
+    # Windows names a JPEG saved from a browser ".jfif", and ".jpe" is the other
+    # registered alias. Both were refused with "There is no image on the
+    # clipboard", which names the wrong cause entirely -- the file is right
+    # there, the add-on just would not open it. .avif and .ico are here because
+    # Anki's own editor accepts them.
+    for suffix in (".jfif", ".jpe", ".avif", ".ico"):
+        assert suffix in SUPPORTED_SUFFIXES
+        path = f"C:/pictures/scan{suffix}"
+        assert choose_local_file(ClipboardOffer(urls=(path,))) == path
+
+
+def test_written_bytes_never_get_an_alias_extension():
+    # Widening what the add-on OPENS must not change what it NAMES. The alias
+    # suffixes are reachable only for a file the user already has; every suffix
+    # the add-on writes comes from suffix_for_mime, so a pasted JPEG is still
+    # called ".jpg".
+    assert suffix_for_mime("image/jpeg") == ".jpg"
+    written = {suffix_for_mime(mime) for mime, _ in _MIME_SUFFIXES}
+    assert written.isdisjoint({".jfif", ".jpe", ".ico"}), written
 
 
 def test_bmp_is_a_supported_file_but_not_a_clipboard_format():

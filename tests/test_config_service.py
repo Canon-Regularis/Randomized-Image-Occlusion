@@ -157,10 +157,13 @@ def test_editor_zoom_is_clamped_to_the_range_the_canvas_supports():
 
 def test_hand_edited_editor_zoom_falls_back_instead_of_raising():
     # Reading config is total: a hand-edited value must not stop the editor
-    # opening, however silly it is.
-    for stored in ("wide", None, float("nan"), float("inf"), [1]):
+    # opening, however silly it is. The huge integers are not academic -- JSON
+    # carries them happily and float() raises OverflowError, not ValueError, so
+    # they escaped the original except clause and the dialog could never be
+    # opened again.
+    for stored in ("wide", None, float("nan"), float("inf"), [1], 10**400, -(10**400)):
         service = ConfigService(InMemoryConfigProvider({"editor_zoom": stored}))
-        assert service.editor_zoom() == 1.0
+        assert service.editor_zoom() == 1.0, f"editor_zoom={stored!r} did not fall back"
 
 
 def test_setting_editor_zoom_writes_only_the_delta():
