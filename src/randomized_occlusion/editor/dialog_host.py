@@ -73,9 +73,12 @@ class ModelessDialogHost:
         been loaded -- and reported "Added N cards", so the user had no reason
         to doubt where it went.
 
-        Closing is enough: `MarkerDialog.silentlyClose` lets `close()` run the
-        normal reject path, which fires `finished` and so reaches `_release`
-        and the dialog's own teardown.
+        Closing is enough on its own: `QDialog.close()` delivers a close event,
+        whose default handling rejects the dialog and emits `finished`, which
+        reaches `_release` and the dialog's own teardown. That is Qt, not
+        anything this add-on arranges -- `MarkerDialog.silentlyClose` plays no
+        part in it. That flag is read only by Anki's shutdown sweep, which
+        never sees this dialog anyway (see `MarkerDialog.silentlyClose`).
         """
         dialog = self._dialog
         if dialog is None:
