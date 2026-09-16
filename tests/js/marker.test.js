@@ -20,6 +20,49 @@ function loaded(opts) {
   return h;
 }
 
+test("an existing marker keeps the ordinal it arrived with", () => {
+  // The ordinal is the marker's Anki card, and so its whole review history.
+  // The editor used to drop it, so every save renumbered the survivors 1..N and
+  // handed each later card's scheduling to a different structure.
+  const h = buildEditor();
+  h.api.setImage(PNG, [
+    { x: 0.2, y: 0.3, label: "Aorta", ord: 1 },
+    { x: 0.6, y: 0.7, label: "SVC", ord: 3 },
+    { x: 0.8, y: 0.2, label: "IVC", ord: 4 },
+  ]);
+  h.load();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(h.api.getMarkers().map((m) => m.ord))),
+    [1, 3, 4],
+    "the ordinals were not carried through the canvas",
+  );
+});
+
+test("a marker added in the editor claims no ordinal", () => {
+  // Python assigns one past the highest ever used; claiming a number here could
+  // hand the new structure a deleted structure's card.
+  const h = loaded({ markers: [{ x: 0.2, y: 0.3, label: "Aorta", ord: 7 }] });
+  const p = h.pointAt(0.5, 0.5);
+  h.clickImage(p.x, p.y);
+
+  const ords = JSON.parse(JSON.stringify(h.api.getMarkers().map((m) => m.ord)));
+  assert.deepEqual(ords, [7, null]);
+});
+
+test("a junk ordinal is treated as a new marker, not as someone else's card", () => {
+  const h = buildEditor();
+  h.api.setImage(PNG, [
+    { x: 0.2, y: 0.3, label: "a", ord: 0 },
+    { x: 0.3, y: 0.4, label: "b", ord: -2 },
+    { x: 0.4, y: 0.5, label: "c", ord: "nonsense" },
+    { x: 0.5, y: 0.6, label: "d", ord: 2.9 },
+  ]);
+  h.load();
+  const ords = JSON.parse(JSON.stringify(h.api.getMarkers().map((m) => m.ord)));
+  assert.deepEqual(ords, [null, null, null, 2], "a junk ordinal was trusted");
+});
+
 /** Where a client point falls on the image, normalized 0..1. */
 function norm(h, x, y) {
   const r = h.els.img.getBoundingClientRect();
@@ -599,8 +642,10 @@ test("setImage keeps the restored zoom in the prefill flow", () => {
   assert.equal(
     JSON.stringify(h.api.getMarkers()),
     JSON.stringify([
-      { x: 0.25, y: 0.25, label: "one" },
-      { x: 0.75, y: 0.5, label: "two" },
+      // `ord: null` is "this marker is new": the note being edited supplied no
+      // ordinal for it, so the save assigns one rather than claiming a card.
+      { x: 0.25, y: 0.25, label: "one", ord: null },
+      { x: 0.75, y: 0.5, label: "two", ord: null },
     ]),
   );
   // Both dots are drawn, and at 3x they are 3x further apart on screen.

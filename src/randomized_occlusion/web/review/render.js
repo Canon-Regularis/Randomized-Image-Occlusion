@@ -919,16 +919,30 @@
   // ---- orchestration --------------------------------------------------------
 
   /**
-   * Map the active cloze ordinal to a structure index and a card direction. The
-   * ordinal is always the structure's 1-based index (every mode emits one card
-   * per structure). Direction is fixed for forward/reverse; for "both" the
-   * caller's per-review coin (preferForward) decides. An out-of-range ordinal
+   * Map the active cloze ordinal to a structure index and a card direction.
+   *
+   * The ordinal is LOOKED UP, not subtracted from. It used to be the
+   * structure's 1-based position, but editing a note no longer renumbers the
+   * survivors -- deleting the second of five leaves ordinals 1, 3, 4, 5 so that
+   * every remaining card keeps the structure, and the review history, it always
+   * had. `activeOrdinal - 1` would then show card 3 the wrong structure and
+   * walk off the end of the list on the last one.
+   *
+   * Direction is fixed for forward/reverse; for "both" the caller's per-review
+   * coin (preferForward) decides. An ordinal that matches nothing -- a card
+   * orphaned by a deletion, which Anki keeps until Tools > Empty Cards is run --
    * falls back to the first structure. Pure (no DOM/rng), unit-tested via
    * _internals.
    */
-  function resolveActiveCard(activeOrdinal, direction, count, preferForward) {
-    var activeIndex = activeOrdinal - 1;
-    if (activeIndex < 0 || activeIndex >= count) activeIndex = 0;
+  function resolveActiveCard(activeOrdinal, direction, structures, preferForward) {
+    var activeIndex = -1;
+    for (var i = 0; i < structures.length; i++) {
+      if (Number(structures[i].ord) === activeOrdinal) {
+        activeIndex = i;
+        break;
+      }
+    }
+    if (activeIndex < 0) activeIndex = 0;
     var cardDir;
     if (direction === "both") {
       cardDir = preferForward ? "forward" : "reverse";
@@ -1022,7 +1036,7 @@
     var activeCard = resolveActiveCard(
       activeOrdinal,
       data.direction,
-      structures.length,
+      structures,
       preferForward
     );
     var activeIndex = activeCard.activeIndex;

@@ -225,7 +225,12 @@ test("computeSingleLayout.order matches makeCycler's own shuffleIndices order", 
 
 // render.js runs in a vm sandbox, so objects it returns carry that realm's
 // prototype; spreading into a plain literal lets strict deepEqual compare them.
-const active = (ord, dir, count, pf) => ({ ...I.resolveActiveCard(ord, dir, count, pf) });
+// `count` is spelt as the ordinals actually present, because an ordinal is
+// looked up now rather than subtracted from: an edited note carries gaps.
+const ords = (count) => Array.from({ length: count }, (_, i) => ({ ord: i + 1 }));
+const active = (ord, dir, count, pf) => ({
+  ...I.resolveActiveCard(ord, dir, Array.isArray(count) ? count : ords(count), pf),
+});
 
 test("resolveActiveCard maps every ordinal straight to its 0-based structure index", () => {
   assert.deepEqual(active(1, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
@@ -239,6 +244,25 @@ test("resolveActiveCard uses the coin only to pick both-mode direction", () => {
   assert.deepEqual(active(1, "both", 2, false), { activeIndex: 0, cardDir: "reverse" });
   assert.deepEqual(active(2, "both", 2, true), { activeIndex: 1, cardDir: "forward" });
   assert.deepEqual(active(2, "both", 2, false), { activeIndex: 1, cardDir: "reverse" });
+});
+
+test("resolveActiveCard finds a structure whose ordinal is not its position", () => {
+  // What an edited note looks like: the second of four structures was deleted,
+  // so the survivors kept 1, 3, 4 and every one of their cards kept its own
+  // review history. Subtracting 1 would show card 3 the wrong structure and
+  // run off the end on card 4.
+  const gapped = [{ ord: 1 }, { ord: 3 }, { ord: 4 }];
+  assert.equal(active(1, "forward", gapped, true).activeIndex, 0);
+  assert.equal(active(3, "forward", gapped, true).activeIndex, 1);
+  assert.equal(active(4, "forward", gapped, true).activeIndex, 2);
+});
+
+test("resolveActiveCard falls back for a card its structure no longer has", () => {
+  // Anki keeps a card whose cloze has gone until Tools > Empty Cards is run, so
+  // ordinal 2 can still arrive after the structure that owned it was deleted.
+  const gapped = [{ ord: 1 }, { ord: 3 }];
+  assert.equal(active(2, "forward", gapped, true).activeIndex, 0);
+  assert.equal(active(99, "forward", gapped, true).activeIndex, 0);
 });
 
 test("resolveActiveCard ignores the coin for fixed forward/reverse directions", () => {

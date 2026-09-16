@@ -845,10 +845,16 @@ window.ROEditor = (function () {
   function normalizeMarkers(list) {
     if (!Array.isArray(list)) return [];
     return list.map(function (m) {
+      // `ord` is the marker's EXISTING Anki cloze ordinal, present only when the
+      // note is being edited. It is carried through untouched so the save can
+      // give each surviving structure back the card -- and the review history --
+      // it already had. A marker added here has none, and Python assigns one.
+      var ord = Number(m.ord);
       return {
         x: clamp01(Number(m.x) || 0),
         y: clamp01(Number(m.y) || 0),
         label: m.label == null ? "" : String(m.label),
+        ord: isFinite(ord) && ord >= 1 ? Math.floor(ord) : null,
       };
     });
   }
@@ -893,7 +899,12 @@ window.ROEditor = (function () {
     // Deliberately untouched by zoom and pan: the view transform never writes
     // back into the model.
     return markers.map(function (m) {
-      return { x: m.x, y: m.y, label: (m.label || "").trim() };
+      return {
+        x: m.x,
+        y: m.y,
+        label: (m.label || "").trim(),
+        ord: m.ord == null ? null : m.ord,
+      };
     });
   }
 
