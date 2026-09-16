@@ -122,10 +122,13 @@ def _existing_ordinal(value: Any) -> int | None:
 
 
 class MarkerDialog(QDialog):
-    #: Anki's shutdown path (`_checkForUnclosedWidgets`) only calls `close()` on
-    #: windows that advertise this; without it, quitting with the editor open
-    #: skipped `_on_finished` entirely, so the pasted-image scratch directory was
-    #: never reclaimed and the zoom level was never written back.
+    #: Anki's shutdown sweep (`_checkForUnclosedWidgets`) only calls `close()` on
+    #: windows that advertise this. A backstop now rather than the guard it was:
+    #: `profile_will_close` fires earlier in the same shutdown, and
+    #: `bootstrap._close_editors` takes this dialog down there, so the sweep no
+    #: longer finds it open. Kept because any path that reaches the sweep without
+    #: that hook would leave `_on_finished` unrun -- the pasted-image scratch
+    #: directory unreclaimed and the zoom level never written back.
     silentlyClose = True
 
     def __init__(
@@ -155,6 +158,14 @@ class MarkerDialog(QDialog):
         )
         self._deck_combo: QComboBox | None = None
         self._web_ready = False
+        #: Whether the user has typed in the Header / Back extra boxes. Set by
+        #: the widgets themselves rather than inferred from their contents: the
+        #: boxes are plain text, so DELETING markup produces exactly the text
+        #: that was loaded, and comparing content read that as "untouched" and
+        #: put the markup back. There was no way to remove an <img> or a <b>
+        #: through this dialog at all.
+        self._header_touched = False
+        self._extra_touched = False
         #: The canvas cannot display the chosen image. Save stays off until a
         #: usable one arrives; the marker count is left alone, because the
         #: markers are still the note's data and still worth confirming before
@@ -259,7 +270,17 @@ class MarkerDialog(QDialog):
         if self._prefill is not None:
             self._header_edit.setText(self._prefill.header)
             self._extra_edit.setPlainText(self._prefill.back_extra)
+        # AFTER the prefill, so populating the boxes does not count as editing
+        # them. From here on any keystroke marks the field as the user's.
+        qconnect(self._header_edit.textChanged, self._on_header_edited)
+        qconnect(self._extra_edit.textChanged, self._on_extra_edited)
         return form
+
+    def _on_header_edited(self, *_args: Any) -> None:
+        self._header_touched = True
+
+    def _on_extra_edited(self, *_args: Any) -> None:
+        self._extra_touched = True
 
     def _build_options_group(self) -> QGroupBox:
         defaults = (
@@ -753,25 +774,26 @@ class MarkerDialog(QDialog):
             )
 
     def _unedited_source(self, which: str) -> str | None:
-        """The stored field, if this box still shows exactly what was loaded.
+        """The stored field, unless this box has been typed in.
 
         The boxes are plain text, so reading a field into one drops any markup
         it held -- an ``<img>`` or an ``<a>`` a user added through Anki's own
         editor has no plain-text form at all. Writing the box back would then
-        delete it. When the box is untouched there is nothing to write, so the
-        original goes back byte-identically; a real edit returns ``None`` and
-        takes the ordinary escape path.
+        delete it. When the box was never typed in there is nothing to write, so
+        the original goes back byte-identically; once it has been, ``None`` sends
+        the box's text down the ordinary escape path.
+
+        "Was it typed in" is tracked, not inferred. Comparing the box against
+        what was loaded looked equivalent and is not: deleting markup yields
+        precisely the text that was loaded, so a genuine edit read as untouched
+        and the markup was restored under the user.
         """
         prefill = self._prefill
         if prefill is None:
             return None
         if which == "header":
-            shown, loaded = self._header_edit.text(), prefill.header
-            source = prefill.header_source
-        else:
-            shown, loaded = self._extra_edit.toPlainText(), prefill.back_extra
-            source = prefill.back_extra_source
-        return source if shown.strip() == loaded.strip() else None
+            return None if self._header_touched else prefill.header_source
+        return None if self._extra_touched else prefill.back_extra_source
 
     def _structures_from_markers(self, markers: Any) -> StructureSet | None:
         """Validate the raw markers from the canvas into a StructureSet.
