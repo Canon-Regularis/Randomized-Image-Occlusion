@@ -168,6 +168,48 @@ def test_a_structure_added_after_a_deletion_never_reuses_the_freed_ordinal(delet
         assert kept[structure.ordinal] == structure.label
 
 
+def test_too_many_structures_is_refused_with_a_message_a_user_can_act_on():
+    # An older version of this add-on had no upper bound, so a note with 600
+    # structures could be saved. Enumerating them produced a ~3,000-character
+    # dialog that named neither the limit's reason nor any remedy -- and since
+    # this editor is the only thing that could REMOVE structures, such a note
+    # was unrecoverable through the UI.
+    many = [_s(i, f"s{i}") for i in range(1, MAX_ORDINAL + 101)]
+    with pytest.raises(ValueError) as caught:
+        StructureSet(structures=tuple(many))
+
+    message = str(caught.value)
+    assert len(message) < 300, f"{len(message)}-character dialog: {message[:120]}..."
+    assert str(len(many)) in message, "does not say how many structures there are"
+    assert str(MAX_ORDINAL) in message, "does not say what the limit is"
+    assert "editor" in message, "does not say what to do about it"
+
+
+def test_a_long_ordinal_list_is_summarised_rather_than_enumerated():
+    dupes = [_s(1, "a")] + [_s(i, f"s{i}") for i in range(1, 60)]
+    with pytest.raises(ValueError) as caught:
+        StructureSet(structures=tuple(dupes))
+    message = str(caught.value)
+    assert "more]" in message, f"the whole list was printed: {message[:120]}..."
+    assert len(message) < 200, len(message)
+
+
+def test_a_high_water_mark_past_the_ceiling_is_clamped_not_obeyed():
+    # Reachable by corruption, or legitimately by ~499 add-then-delete cycles on
+    # one note, since the mark only ever goes up. Left alone it is read, written
+    # straight back, and then refuses every new structure for ever -- on a note
+    # that may hold only two.
+    poisoned = StructureSet(structures=(_s(1, "a"), _s(2, "b")), next_ordinal=9999)
+    assert poisoned.next_ordinal == 3, "the nonsense mark was carried"
+
+    grown = StructureSet.keeping_ordinals(
+        [*[(s.ordinal, s) for s in poisoned.ordered], (None, _s(1, "new"))],
+        next_ordinal=poisoned.next_ordinal,
+    )
+    assert [s.ordinal for s in grown.ordered] == [1, 2, 3]
+    assert grown.ordered[-1].label == "new"
+
+
 def test_the_high_water_mark_survives_a_save_and_reload():
     # It rides in the payload, because the survivors alone cannot express it:
     # after deleting the top structure they look exactly like a note that never
@@ -300,3 +342,21 @@ def test_the_payload_declares_version_2():
     # A wrong version sends every note down the legacy path.
     structures = StructureSet(structures=(_s(1, "one"), _s(2, "two")))
     assert _decode_payload(structures.to_payload_base64(CardOptions()))["v"] == 2
+
+
+def test_a_mark_one_past_the_ceiling_is_not_mistaken_for_a_full_note():
+    # MAX_ORDINAL + 1 is the legitimate "nothing left to hand out" mark for a
+    # note that really is full, which is why the clamp cannot simply reject it.
+    # An off-by-one therefore kept it on a note with room to spare, and that
+    # note then refused every new structure for good -- exactly the failure the
+    # clamp exists to prevent, alive for one value.
+    roomy = StructureSet(
+        structures=(_s(1, "a"), _s(2, "b")), next_ordinal=MAX_ORDINAL + 1
+    )
+    assert roomy.next_ordinal == 3, "a two-structure note was told it was full"
+
+    full = StructureSet(
+        structures=tuple(_s(n, f"s{n}") for n in range(1, MAX_ORDINAL + 1)),
+        next_ordinal=MAX_ORDINAL + 1,
+    )
+    assert full.next_ordinal == MAX_ORDINAL + 1, "a full note may keep its mark"

@@ -270,13 +270,38 @@
    * The active cloze ordinal identifies this card. Anki renders the active
    * deletion as `<span class="cloze" data-ordinal="N">` and the others as
    * `class="cloze-inactive"`, so `.cloze` selects the active one.
+   *
+   * 0 means Anki made no cloze active on this card, which happens when the
+   * card's cloze number is not in the field at all -- an orphan left behind
+   * by a deletion. Returning 1 for that case (as this used to) is what made
+   * such a card draw the FIRST structure and pass for card 1.
    */
   function readActiveOrdinal() {
     var active = document.querySelector("#ro-ordinal .cloze");
     if (active && active.dataset && active.dataset.ordinal) {
-      return parseInt(active.dataset.ordinal, 10) || 1;
+      return parseInt(active.dataset.ordinal, 10) || 0;
     }
-    return 1;
+    return 0;
+  }
+
+  /** The index of the structure numbered `ordinal`, or -1. */
+  function indexOfOrdinal(structures, ordinal) {
+    for (var i = 0; i < structures.length; i++) {
+      if (Number(structures[i].ord) === ordinal) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Take the overlay down.
+   *
+   * Idempotent, because render() runs again on every resize. It does not
+   * also empty the overlay: render() returns before drawing anything on this
+   * path, and a repaint of the same card carries the same ordinal, so an
+   * overlay that HAS been drawn can never arrive here.
+   */
+  function hideOverlay(svg) {
+    svg.style.display = "none";
   }
 
   function isBackSide() {
@@ -1013,19 +1038,14 @@
    * walk off the end of the list on the last one.
    *
    * Direction is fixed for forward/reverse; for "both" the caller's per-review
-   * coin (preferForward) decides. An ordinal that matches nothing -- a card
-   * orphaned by a deletion, which Anki keeps until Tools > Empty Cards is run --
-   * falls back to the first structure. Pure (no DOM/rng), unit-tested via
-   * _internals.
+   * coin (preferForward) decides. An ordinal that matches nothing falls back to
+   * the first structure, which is what a card whose ordinal could not be READ
+   * at all needs; a card whose ordinal WAS read and matches nothing is an
+   * orphan, and render() turns that away before it gets here. Pure (no
+   * DOM/rng), unit-tested via _internals.
    */
   function resolveActiveCard(activeOrdinal, direction, structures, preferForward) {
-    var activeIndex = -1;
-    for (var i = 0; i < structures.length; i++) {
-      if (Number(structures[i].ord) === activeOrdinal) {
-        activeIndex = i;
-        break;
-      }
-    }
+    var activeIndex = indexOfOrdinal(structures, activeOrdinal);
     if (activeIndex < 0) activeIndex = 0;
     var cardDir;
     if (direction === "both") {
@@ -1102,6 +1122,24 @@
     // Single-card mode drives its own interactive cycler / answer key.
     if (data.mode === "single") {
       renderSingle(structures, seed, data.direction, data.interaction === "type", back, cfg);
+      return;
+    }
+
+    // Anki keeps the card of a deleted structure until Tools > Empty Cards is
+    // run. Such a card has no cloze to make active, so Anki renders no `.cloze`
+    // span (activeOrdinal 0) and prints its own message below this template:
+    // "No cloze N found on card. Please either add a cloze deletion, or use the
+    // Empty Cards tool", localised, with a link. Falling back to the first
+    // structure drew THAT card's prompt box and arrow over the image, directly
+    // contradicting the message underneath. Draw nothing and let Anki's own
+    // explanation stand. A read ordinal matching no structure means the payload
+    // and the cloze field disagree (a hand-edited note), and is equally undrawable.
+    // Both reach the same test: ordinals are 1-based, so the 0 that stands for
+    // "no active cloze" matches nothing either.
+    // Single mode is settled above: it is always c1 whatever the survivors are
+    // numbered, so a deletion there must not blank a perfectly good card.
+    if (indexOfOrdinal(structures, activeOrdinal) < 0) {
+      hideOverlay(svg);
       return;
     }
 
@@ -1305,6 +1343,7 @@
     boxBorderToward: boxBorderToward,
     shuffleIndices: shuffleIndices,
     normalizeAnswer: normalizeAnswer,
+    indexOfOrdinal: indexOfOrdinal,
     resolveActiveCard: resolveActiveCard,
     targetDotVisible: targetDotVisible,
     wrapToWidth: wrapToWidth,

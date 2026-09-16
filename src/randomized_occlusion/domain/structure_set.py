@@ -20,6 +20,18 @@ __all__ = ["MAX_ORDINAL", "StructureSet"]
 MAX_ORDINAL = 500
 
 
+def _some(ordinals: Sequence[int], limit: int = 6) -> str:
+    """A few ordinals for an error message, never the whole list.
+
+    A note can legitimately hold hundreds, and a message that enumerates them
+    is a dialog the user has to scroll rather than something they can act on.
+    """
+    if len(ordinals) <= limit:
+        return str(list(ordinals))
+    shown = ", ".join(str(o) for o in ordinals[:limit])
+    return f"[{shown}, ... {len(ordinals) - limit} more]"
+
+
 def _cloze_escape(label: str) -> str:
     """Neutralise cloze *and* HTML metacharacters so a label is safe here.
 
@@ -96,16 +108,31 @@ class StructureSet:
         ordinals = sorted(s.ordinal for s in self.structures)
         if len(set(ordinals)) != len(ordinals):
             raise ValueError(
-                f"structure ordinals must be distinct; got {ordinals}"
+                f"structure ordinals must be distinct; got {_some(ordinals)}"
             )
         # Only the upper bound is checked here: Structure itself refuses an
         # ordinal below 1, so a set cannot hold one.
         if ordinals[-1] > MAX_ORDINAL:
+            # Says the rule and a remedy, and does NOT list the ordinals. An
+            # older version of this add-on had no upper bound, so a note with
+            # 600 structures could be saved -- and enumerating them produced a
+            # ~3,000-character dialog that named neither the limit's reason nor
+            # anything the user could do about it.
             raise ValueError(
-                f"structure ordinals must be at most {MAX_ORDINAL}; got {ordinals}"
+                f"this note has {len(ordinals)} structures, numbered up to "
+                f"{ordinals[-1]}. Anki can only address {MAX_ORDINAL} cloze "
+                "deletions on one note, so it cannot be edited here. Remove "
+                "some structures in Anki's own note editor first."
             )
         floor = ordinals[-1] + 1
-        if self.next_ordinal < floor:
+        if self.next_ordinal < floor or self.next_ordinal > MAX_ORDINAL:
+            # Below the floor it would hand out an ordinal already in use. Above
+            # the ceiling it names a card Anki cannot address, so every new
+            # structure would be refused for ever -- on a note that may hold
+            # only two. The mark is a hint about numbering, not data, so a
+            # nonsensical one is discarded and the floor stands in for it. That
+            # can reuse an ordinal freed earlier on an already-corrupt note,
+            # which is the lesser harm against a note nothing can add to again.
             object.__setattr__(self, "next_ordinal", floor)
 
     def __iter__(self) -> Iterator[Structure]:

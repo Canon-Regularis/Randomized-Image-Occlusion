@@ -455,3 +455,11 @@ test("cyclerDirections draws from its own seed stream", () => {
   }
 });
 
+
+test("indexOfOrdinal finds a structure by its number, not its position", () => {
+  const structures = [{ ord: 3 }, { ord: 7 }, { ord: 9 }];
+  assert.equal(I.indexOfOrdinal(structures, 3), 0);
+  assert.equal(I.indexOfOrdinal(structures, 7), 1);
+  assert.equal(I.indexOfOrdinal(structures, 4), -1, "a gap is not a near miss");
+  assert.equal(I.indexOfOrdinal(structures, 0), -1, "and nor is a card with no cloze");
+});

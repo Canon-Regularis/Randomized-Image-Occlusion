@@ -24,6 +24,14 @@ OUTPUT = DIST_DIR / "randomized_occlusion.ankiaddon"
 EXCLUDED_NAMES = {"__pycache__", "meta.json", ".DS_Store"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
+# The add-on's per-profile scratch directory. Anki writes into it at runtime and
+# .gitignore keeps that out of `git status`, so a developer building from a
+# symlinked install would otherwise ship their own profile state without ever
+# seeing it. The directory still has to exist in the archive, so its marker file
+# ships and nothing else beneath it does.
+USER_FILES_DIR = "user_files"
+USER_FILES_KEEP = ".gitkeep"
+
 # A fixed timestamp and file metadata for every zip entry, so building the same
 # source twice (on any machine/OS) yields a byte-identical .ankiaddon. Without
 # this, each entry would embed its file's on-disk mtime (and the host OS), and
@@ -33,10 +41,18 @@ _FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 _UNIX_RW_R_R = 0o644 << 16  # regular file, rw-r--r--, stable across platforms
 
 
-def _included(path: Path) -> bool:
-    if any(part in EXCLUDED_NAMES for part in path.parts):
+def _included(relative: Path) -> bool:
+    """Whether the package file at ``relative`` belongs in the archive.
+
+    Takes the path RELATIVE to the package, so the decision cannot turn on
+    where the checkout happens to live -- a repo under a directory named
+    ``__pycache__`` would otherwise produce an empty archive.
+    """
+    if any(part in EXCLUDED_NAMES for part in relative.parts):
         return False
-    return path.suffix not in EXCLUDED_SUFFIXES
+    if relative.parts[0] == USER_FILES_DIR:
+        return relative.parts == (USER_FILES_DIR, USER_FILES_KEEP)
+    return relative.suffix not in EXCLUDED_SUFFIXES
 
 
 def _entry(arcname: str) -> zipfile.ZipInfo:
@@ -97,9 +113,12 @@ def build(output: Path = OUTPUT) -> Path:
     count = 0
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(PACKAGE_DIR.rglob("*")):
-            if not path.is_file() or not _included(path):
+            if not path.is_file():
                 continue
-            arcname = path.relative_to(PACKAGE_DIR).as_posix()
+            relative = path.relative_to(PACKAGE_DIR)
+            if not _included(relative):
+                continue
+            arcname = relative.as_posix()
             data = (
                 _manifest_bytes(path, version)
                 if arcname == "manifest.json"

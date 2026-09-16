@@ -169,19 +169,18 @@ def test_included_rejects_caches_and_bytecode():
     # every file inside __pycache__ is also a .pyc, so emptying either set alone
     # changes nothing. The predicate is where the contract actually lives.
     #
-    # Absolute paths, because that is what build() passes: _included checks every
-    # part, so a checkout living under a directory called __pycache__ would
-    # exclude the whole tree, and a test on relative paths could never see it.
-    package = build.PACKAGE_DIR
+    # Package-RELATIVE paths, because that is what build() passes. It used to
+    # pass absolute ones, and a test that still did would exercise a contract
+    # the code no longer has -- on an absolute path the first component is the
+    # drive, so the user_files rule below could never fire.
+    assert build._included(Path("editor/dialog.py"))
+    assert build._included(Path("web/editor/marker.js"))
 
-    assert build._included(package / "editor" / "dialog.py")
-    assert build._included(package / "web" / "editor" / "marker.js")
-
-    assert not build._included(package / "__pycache__" / "x.py")
-    assert not build._included(package / "meta.json")
-    assert not build._included(package / ".DS_Store")
-    assert not build._included(package / "editor" / "dialog.pyc")
-    assert not build._included(package / "editor" / "dialog.pyo")
+    assert not build._included(Path("__pycache__/x.py"))
+    assert not build._included(Path("meta.json"))
+    assert not build._included(Path(".DS_Store"))
+    assert not build._included(Path("editor/dialog.pyc"))
+    assert not build._included(Path("editor/dialog.pyo"))
 
 
 def test_read_version_matches_version_py():
@@ -229,3 +228,33 @@ def test_build_writes_where_it_is_told(tmp_path: Path):
     after = build.OUTPUT.stat().st_mtime_ns if build.OUTPUT.exists() else None
     assert after == before, "building elsewhere still wrote to dist/"
 
+
+
+def test_only_the_marker_ships_from_user_files():
+    included = build._included
+    assert included(Path("user_files/.gitkeep")), "the directory must still exist"
+    assert not included(Path("user_files/profile-state.json"))
+    assert not included(Path("user_files/cache/thumbnail.png"))
+    assert included(Path("web/review/render.js")), "and nothing else is affected"
+
+
+def test_a_stray_file_in_user_files_is_not_archived(out: Path):
+    # Built from the REAL package directory, because that is where Anki writes
+    # when the add-on is installed as a symlink to this checkout. .gitignore
+    # hides such a file from `git status`, so nothing but this would catch it.
+    # A name nothing else writes, so this cannot collide with the very state
+    # the test exists to describe -- asserting the directory was empty would
+    # hard-fail for exactly the developer whose Anki had written into it.
+    stray = (
+        _ROOT / "src" / "randomized_occlusion" / "user_files" / ".ro-build-probe"
+    )
+    stray.write_text("{}", encoding="utf-8")
+    try:
+        names = _names(build.build(out))
+    finally:
+        stray.unlink()
+
+    assert "user_files/.gitkeep" in names
+    assert [n for n in names if n.startswith("user_files/")] == [
+        "user_files/.gitkeep"
+    ]
