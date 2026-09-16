@@ -21,7 +21,7 @@ MAX_ORDINAL = 500
 
 
 def _some(ordinals: Sequence[int], limit: int = 6) -> str:
-    """A few ordinals for an error message, never the whole list.
+    """A few ordinals for an error message rather than hundreds.
 
     A note can legitimately hold hundreds, and a message that enumerates them
     is a dialog the user has to scroll rather than something they can act on.

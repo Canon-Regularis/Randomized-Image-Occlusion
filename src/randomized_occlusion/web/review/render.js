@@ -271,10 +271,12 @@
    * deletion as `<span class="cloze" data-ordinal="N">` and the others as
    * `class="cloze-inactive"`, so `.cloze` selects the active one.
    *
-   * 0 means Anki made no cloze active on this card, which happens when the
-   * card's cloze number is not in the field at all -- an orphan left behind
-   * by a deletion. Returning 1 for that case (as this used to) is what made
-   * such a card draw the FIRST structure and pass for card 1.
+   * 0 means no ordinal could be read: usually Anki made no cloze active,
+   * because this card's cloze number is not in the field at all -- an orphan
+   * left behind by a deletion -- and failing that, a span whose data-ordinal
+   * is missing or unparseable. Either way it matches no structure, so render()
+   * declines to draw. Returning 1 instead (as this used to) is what made such
+   * a card draw the FIRST structure and pass for card 1.
    */
   function readActiveOrdinal() {
     var active = document.querySelector("#ro-ordinal .cloze");
@@ -1038,15 +1040,12 @@
    * walk off the end of the list on the last one.
    *
    * Direction is fixed for forward/reverse; for "both" the caller's per-review
-   * coin (preferForward) decides. An ordinal that matches nothing falls back to
-   * the first structure, which is what a card whose ordinal could not be READ
-   * at all needs; a card whose ordinal WAS read and matches nothing is an
-   * orphan, and render() turns that away before it gets here. Pure (no
-   * DOM/rng), unit-tested via _internals.
+   * coin (preferForward) decides. The ordinal is known to match: render() turns
+   * away anything that does not, so there is no fallback here to get wrong.
+   * Pure (no DOM/rng), unit-tested via _internals.
    */
   function resolveActiveCard(activeOrdinal, direction, structures, preferForward) {
     var activeIndex = indexOfOrdinal(structures, activeOrdinal);
-    if (activeIndex < 0) activeIndex = 0;
     var cardDir;
     if (direction === "both") {
       cardDir = preferForward ? "forward" : "reverse";

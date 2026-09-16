@@ -297,5 +297,7 @@ class TemplateAssembler:
         ).rstrip("\n")
         return _CARD_CSS.replace("__RO_VARIABLES__", variables)
 
-    #: The module-level hash, so a stored template can be checked with it too.
+    #: The module-level hash. The installer does not call this alias -- it uses
+    #: `fingerprint_of` on the STORED strings -- but both must be the same
+    #: function, or what we write and what we check would diverge.
     _fingerprint = staticmethod(_hash)

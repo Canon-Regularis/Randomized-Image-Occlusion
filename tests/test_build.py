@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import zipfile
 from pathlib import Path
@@ -229,7 +230,6 @@ def test_build_writes_where_it_is_told(tmp_path: Path):
     assert after == before, "building elsewhere still wrote to dist/"
 
 
-
 def test_only_the_marker_ships_from_user_files():
     included = build._included
     assert included(Path("user_files/.gitkeep")), "the directory must still exist"
@@ -245,14 +245,22 @@ def test_a_stray_file_in_user_files_is_not_archived(out: Path):
     # A name nothing else writes, so this cannot collide with the very state
     # the test exists to describe -- asserting the directory was empty would
     # hard-fail for exactly the developer whose Anki had written into it.
+    #
+    # The name carries this process's id so two runs (pytest-xdist) cannot
+    # collide, and `missing_ok` means a crash inside build() that already
+    # removed it cannot turn one failure into two.
     stray = (
-        _ROOT / "src" / "randomized_occlusion" / "user_files" / ".ro-build-probe"
+        _ROOT
+        / "src"
+        / "randomized_occlusion"
+        / "user_files"
+        / f".ro-build-probe-{os.getpid()}"
     )
     stray.write_text("{}", encoding="utf-8")
     try:
         names = _names(build.build(out))
     finally:
-        stray.unlink()
+        stray.unlink(missing_ok=True)
 
     assert "user_files/.gitkeep" in names
     assert [n for n in names if n.startswith("user_files/")] == [

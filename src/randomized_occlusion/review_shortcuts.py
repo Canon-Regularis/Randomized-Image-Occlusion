@@ -27,13 +27,6 @@ from typing import Any
 
 __all__ = ["install", "should_intercept"]
 
-#: Fallback for the keys Anki binds to "show answer / answer card". The caller
-#: should pass the same objects Anki itself binds -- it binds `" "` as a string
-#: but Return and Enter as `Qt.Key` members, and our binding only replaces its
-#: own if `QKeySequence` treats the two spellings as one key. Passing the enum
-#: removes the question instead of relying on the answer.
-_KEYS: tuple[Any, ...] = (" ", "Return", "Enter")
-
 
 def should_intercept(
     *,
@@ -69,15 +62,21 @@ def install(
     our_notetype_name: str,
     is_single_card: Callable[[Any], bool],
     *,
-    keys: tuple[Any, ...] = _KEYS,
+    keys: tuple[Any, ...],
 ) -> None:
     """Register the override. ``is_single_card`` reads a note, and may raise.
 
-    ``keys`` must be spelled the way Anki spells them, so that its dedupe keeps
-    one binding per key rather than two; see :data:`_KEYS`.
+    ``keys`` is required, and has no default on purpose. Anki binds `" "` as a
+    string but Return and Enter as `Qt.Key` members, and our binding replaces
+    its own only if `QKeySequence` treats the two spellings as one key. The
+    caller passes the objects Anki itself binds, which removes that question
+    rather than relying on the answer -- so a default here could only be the
+    spelling that might leave BOTH bindings alive and take Return and Enter out
+    of the reviewer entirely. This module imports no aqt (that is why its tests
+    run at all), so the constants come from the caller.
     """
-    #: Latched: the failure below can recur on every key press, and a console
-    #: line per keystroke would bury the first one.
+    # Latched: the failure below can recur on every key press, and a console
+    # line per keystroke would bury the first one.
     reported = [False]
 
     def handler() -> None:
@@ -125,9 +124,11 @@ def install(
         def resume(advanced: Any) -> None:
             if advanced:
                 return
-            # The card can change between the press and this callback (Anki's
-            # auto-advance, or an edit in the Browser), so decide again rather
-            # than act on a decision that may have gone stale.
+            # The reviewer can be gone by the time this lands (the profile
+            # closed, or the learner left the reviewer), so re-check before
+            # acting on a decision taken before the round trip. Note the limit:
+            # if Anki's auto-advance moved to ANOTHER card, both conditions
+            # still hold and the key reaches that card instead.
             if mw.state == "review" and mw.reviewer is not None:
                 mw.reviewer.onEnterKey()
 

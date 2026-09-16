@@ -156,7 +156,11 @@ class NoteTypeInstaller:
         """
         names = [field.get("name") for field in notetype.get("flds", [])]
         if self._spec.sort_field not in names:
-            return False  # ensure_fields adds it; nothing sensible to point at
+            # Unreachable for DEFAULT_SPEC, whose sort field is required, so a
+            # note type lacking it was refused above. Kept for a spec that does
+            # NOT require its sort field: there the field really can be absent,
+            # and index() below would raise rather than skip.
+            return False
         wanted = names.index(self._spec.sort_field)
         if notetype.get("sortf") == wanted:
             return False

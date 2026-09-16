@@ -133,8 +133,9 @@ def _install_notetype(config_service: ConfigService) -> None:
     col = mw.col
     if col is None:
         return
+    installer = build_installer(col)
     try:
-        result = build_installer(col).ensure_installed(config_service.render_config())
+        result = installer.ensure_installed(config_service.render_config())
     except Exception as exc:  # pragma: no cover - defensive, never block startup
         print(f"[Randomized Image Occlusion] note-type install failed: {exc!r}")
         return
@@ -152,10 +153,14 @@ def _install_notetype(config_service: ConfigService) -> None:
     elif result is InstallResult.FIELDS_MISSING:
         # Nothing was written, and nothing the add-on does will work until this
         # is put right, so the one place it can be said at profile open says it.
+        # Names the field that is actually gone: listing every field the note
+        # type needs leaves the user to work out which one moved.
+        missing = installer.missing_required_fields(
+            col.models.by_name(DEFAULT_SPEC.name) or {}
+        )
         print(
-            "[Randomized Image Occlusion] the note type is missing one of the "
-            f"fields it was created with ({', '.join(DEFAULT_SPEC.required_fields)}), "
-            "so it was left untouched. Restore the original field name in Tools > "
-            "Manage Note Types > Fields; adding an empty field back would blank it "
-            "on every card."
+            "[Randomized Image Occlusion] the note type no longer has the field "
+            f"{', '.join(repr(name) for name in missing)}, so it was left "
+            "untouched. Restore the original name in Tools > Manage Note Types > "
+            "Fields; adding an empty field back would blank it on every card."
         )

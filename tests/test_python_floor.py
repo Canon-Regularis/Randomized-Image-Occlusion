@@ -18,8 +18,9 @@ the floor actually raises. Run on 3.9 (the CI ``check`` job) it is the guard; ru
 on a newer interpreter it still pins which modules belong to the Qt layer.
 
 Six modules cannot be imported at all without ``aqt``, which CI never installs,
-so the guard above SKIPS them -- exactly the six that carry the Qt code, and four
-of which changed in this release. The checks below therefore read them as source
+so the guard above SKIPS them -- exactly the six that carry the Qt code, and the
+ones most likely to acquire new syntax, since they are where the UI work happens.
+The checks below therefore read them as source
 instead: a parse pinned to the floor, the ``dataclass`` arguments a parse cannot
 see, and the future import that makes ``X | Y`` annotations legal there. Weaker
 than executing them, and the only thing available without Anki.

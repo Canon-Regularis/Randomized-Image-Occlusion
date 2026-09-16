@@ -59,14 +59,17 @@ def prepare_content(
 ) -> NoteContent:
     """Build a note's field values: the fallible prelude both note ops share.
 
-    Two steps here can fail on external state, and both MUST happen before
+    Three steps here can fail, and all MUST happen before
     :func:`commit_with_undo` opens a custom undo entry, or the failure would
     strand a half-open entry and corrupt Anki's undo queue:
 
     * ``ensure_installed`` may add or update the note type, a schema change that
       clears the undo queue outright (normally a no-op; bootstrap installs the
       note type at profile open); and
-    * ``resolve_image`` may import a file the user has since moved or deleted.
+    * ``resolve_image`` may import a file the user has since moved or deleted; and
+    * a field the note type was created with may have been renamed in Anki, which
+      is refused here because the write would put the note's content into fields
+      the templates no longer reference.
 
     Callers keep their *own* fallible work (looking up the deck, loading the note)
     before ``commit_with_undo`` for the same reason; only the write is wrapped.

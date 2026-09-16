@@ -138,7 +138,12 @@ class _Card:
         return self._note
 
 
-def _install(mw: Any, *, single: bool = True, raises: bool = False, keys=None):
+#: Stand-ins for the objects bootstrap passes. `install` takes the spellings from
+#: its caller and has no default, so every test has to name them.
+_KEYS = (" ", "Return", "Enter")
+
+
+def _install(mw: Any, *, single: bool = True, raises: bool = False, keys=_KEYS):
     hooks = _Hooks()
 
     def is_single(_note: Any) -> bool:
@@ -146,8 +151,7 @@ def _install(mw: Any, *, single: bool = True, raises: bool = False, keys=None):
             raise RuntimeError("payload unreadable")
         return single
 
-    extra = {} if keys is None else {"keys": keys}
-    install(hooks, mw, OURS, is_single, **extra)
+    install(hooks, mw, OURS, is_single, keys=keys)
     assert len(hooks.callbacks) == 1
     return hooks.callbacks[0]
 
@@ -179,11 +183,14 @@ def test_the_keys_the_caller_names_are_the_keys_appended():
     assert [key for key, _ in shortcuts[len(existing) :]] == list(sentinels)
 
 
-def test_the_default_keys_are_the_three_anki_binds():
-    mw = _MW(_Reviewer(_Card(_Note())))
-    shortcuts: list = []
-    _install(mw)("review", shortcuts)
-    assert [key for key, _ in shortcuts] == [" ", "Return", "Enter"]
+def test_the_caller_must_name_the_keys():
+    # There is no default on purpose. Any default would have to be the string
+    # spelling, and Anki binds Return and Enter as Qt.Key members -- a spelling
+    # its QKeySequence dedupe may not treat as the same key, which leaves both
+    # bindings alive and takes Return and Enter out of the reviewer for every
+    # card. A caller that forgets should fail loudly here, not in the reviewer.
+    with pytest.raises(TypeError):
+        install(_Hooks(), _MW(_Reviewer(_Card(_Note()))), OURS, lambda _n: True)
 
 
 def _press(mw: Any, **kwargs: Any) -> None:
