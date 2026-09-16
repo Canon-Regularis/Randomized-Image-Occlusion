@@ -50,7 +50,7 @@ from ..config.config_service import ConfigService
 from ..domain.card_options import CardMode, CardOptions, Direction, Interaction
 from ..domain.geometry import NormalizedPoint
 from ..domain.structure import Structure
-from ..domain.structure_set import StructureSet
+from ..domain.structure_set import MAX_ORDINAL, StructureSet
 from ..resources import read_web
 from .bridge import MarkerBridge
 from .clipboard_image import IMAGE_FILE_FILTER, ClipboardOffer, resolve_paste
@@ -103,6 +103,22 @@ class _QtClipboard:
     def bitmap(self) -> Any | None:
         image = self._clipboard.image()
         return None if image is None or image.isNull() else image
+
+
+def _existing_ordinal(value: Any) -> int | None:
+    """The ordinal a marker arrived with, or ``None`` for one added just now.
+
+    Anything unreadable is treated as "new" rather than raised on: the canvas is
+    the only writer, but a value that cannot be interpreted as a card ordinal is
+    better given a fresh one than allowed to claim someone else's card.
+    """
+    if value is None:
+        return None
+    try:
+        ordinal = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return ordinal if 1 <= ordinal <= MAX_ORDINAL else None
 
 
 class MarkerDialog(QDialog):
@@ -447,7 +463,11 @@ class MarkerDialog(QDialog):
             )
             return
         markers = [
-            {"x": s.target.x, "y": s.target.y, "label": s.label}
+            # `ord` rides along so the save can hand each structure back its own
+            # card. Dropping it here made every edit renumber the survivors
+            # 1..N, which moved each later card's scheduling onto a different
+            # structure -- silently, and with nothing visible in the UI.
+            {"x": s.target.x, "y": s.target.y, "label": s.label, "ord": s.ordinal}
             for s in prefill.structures.ordered
         ]
         # Read ONCE and pass the result on. Reading to test and then reading
@@ -673,6 +693,8 @@ class MarkerDialog(QDialog):
             options=self._read_options(),
             header=self._header_edit.text().strip(),
             back_extra=self._extra_edit.toPlainText().strip(),
+            header_html=self._unedited_source("header"),
+            back_extra_html=self._unedited_source("back_extra"),
             new_image_path=self._new_image_path,
             existing_image_filename=self._existing_filename,
             deck_name=(
@@ -699,6 +721,27 @@ class MarkerDialog(QDialog):
                 "Could not save the card:\n\n" + traceback.format_exc()
             )
 
+    def _unedited_source(self, which: str) -> str | None:
+        """The stored field, if this box still shows exactly what was loaded.
+
+        The boxes are plain text, so reading a field into one drops any markup
+        it held -- an ``<img>`` or an ``<a>`` a user added through Anki's own
+        editor has no plain-text form at all. Writing the box back would then
+        delete it. When the box is untouched there is nothing to write, so the
+        original goes back byte-identically; a real edit returns ``None`` and
+        takes the ordinary escape path.
+        """
+        prefill = self._prefill
+        if prefill is None:
+            return None
+        if which == "header":
+            shown, loaded = self._header_edit.text(), prefill.header
+            source = prefill.header_source
+        else:
+            shown, loaded = self._extra_edit.toPlainText(), prefill.back_extra
+            source = prefill.back_extra_source
+        return source if shown.strip() == loaded.strip() else None
+
     def _structures_from_markers(self, markers: Any) -> StructureSet | None:
         """Validate the raw markers from the canvas into a StructureSet.
 
@@ -714,17 +757,30 @@ class MarkerDialog(QDialog):
             showWarning("Every marker needs a label.")
             return None
         try:
-            return StructureSet.from_unordered(
-                [
-                    Structure(
-                        ordinal=1,
-                        target=NormalizedPoint(x=float(m["x"]), y=float(m["y"])),
-                        label=str(m["label"]).strip(),
+            # Each marker keeps whatever ordinal it arrived with, and a marker
+            # added in this session gets a fresh one. An ordinal IS a card in
+            # Anki -- its scheduling, its lapses, its whole history -- so
+            # renumbering the survivors after a deletion handed card 2's six
+            # months of review to what used to be structure 3.
+            return StructureSet.keeping_ordinals(
+                next_ordinal=(
+                    self._prefill.structures.next_ordinal
+                    if self._prefill is not None
+                    else 0
+                ),
+                marked=[
+                    (
+                        _existing_ordinal(m.get("ord")),
+                        Structure(
+                            ordinal=1,  # replaced by keeping_ordinals
+                            target=NormalizedPoint(x=float(m["x"]), y=float(m["y"])),
+                            label=str(m["label"]).strip(),
+                        ),
                     )
                     for m in markers
                 ]
             )
-        except (KeyError, ValueError) as exc:
+        except (KeyError, ValueError, TypeError, OverflowError) as exc:
             showWarning(f"Could not build the card:\n{exc}")
             return None
 

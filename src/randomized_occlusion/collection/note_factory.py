@@ -50,6 +50,8 @@ class NoteFactory:
         options: CardOptions = _DEFAULT_OPTIONS,
         header: str = "",
         back_extra: str = "",
+        header_html: str | None = None,
+        back_extra_html: str | None = None,
     ) -> NoteContent:
         spec = self._spec
         # Single mode drives typing itself (a JS-graded cycler), so the native
@@ -61,8 +63,24 @@ class NoteFactory:
             spec.image_field: _image_field_html(image_filename),
             spec.structures_field: structures.to_payload_base64(options),
             spec.cloze_field: structures.cloze_field(options),
-            spec.header_field: header,
-            spec.back_extra_field: back_extra,
+            # Both normally come from a QPlainTextEdit, so they are plain text,
+            # but the fields are rendered as HTML. Unescaped, "a < b" silently
+            # swallows everything up to the next ">" and an accidental tag can
+            # reshape the card. Escaping never empties a non-empty string, so
+            # the {{#Header}} / {{#Back Extra}} conditionals are unaffected.
+            # quote=False: neither value lands in an attribute.
+            #
+            # `*_html` overrides: the caller passes the field back exactly as it
+            # was stored when the user never edited it, so re-saving a note
+            # cannot strip markup that was already in there.
+            spec.header_field: (
+                header_html if header_html is not None
+                else html.escape(header, quote=False)
+            ),
+            spec.back_extra_field: (
+                back_extra_html if back_extra_html is not None
+                else html.escape(back_extra, quote=False)
+            ),
             # A non-empty flag makes {{#TypeAnswer}} render the type-in box.
             spec.type_flag_field: "1" if native_type else "",
         }

@@ -43,6 +43,12 @@ class UpdateRequest:
     new_image_path: str | None = None
     header: str = ""
     back_extra: str = ""
+    #: The stored field, when the dialog's box was never edited. Written back
+    #: verbatim so re-saving cannot strip markup the plain-text box could not
+    #: represent -- a picture or a link added in Anki's own editor. ``None``
+    #: means "the user typed this", so escape it.
+    header_html: str | None = None
+    back_extra_html: str | None = None
 
 
 def update_randomized_occlusion_note(
@@ -73,6 +79,8 @@ def update_randomized_occlusion_note(
             options=request.options,
             header=request.header,
             back_extra=request.back_extra,
+            header_html=request.header_html,
+            back_extra_html=request.back_extra_html,
         )
         # Loading the note can fail as well (it may have been deleted or synced
         # away), so it also stays outside the entry.

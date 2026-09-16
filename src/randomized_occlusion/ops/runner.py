@@ -53,6 +53,8 @@ def prepare_content(
     options: CardOptions,
     header: str,
     back_extra: str,
+    header_html: str | None = None,
+    back_extra_html: str | None = None,
 ) -> NoteContent:
     """Build a note's field values: the fallible prelude both note ops share.
 
@@ -75,6 +77,8 @@ def prepare_content(
         options=options,
         header=header,
         back_extra=back_extra,
+        header_html=header_html,
+        back_extra_html=back_extra_html,
     )
 
 

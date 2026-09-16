@@ -51,10 +51,85 @@ class LoadedNote:
     image_filename: str
     header: str
     back_extra: str
+    #: The fields exactly as stored. `header`/`back_extra` are these read as
+    #: plain text for the dialog's boxes, which drops any markup they hold.
+    header_source: str = ""
+    back_extra_source: str = ""
 
 
 #: Shown when a note's payload cannot be turned into structures at all.
 _MALFORMED = "this note's structure data is malformed"
+
+#: Tags that end a line when a field is read back as plain text. Anki's own
+#: editor wraps each line in a <div>, and uses <br> inside one.
+_BLOCK_TAGS = frozenset({"div", "p", "li", "tr"})
+
+
+class _FieldText(HTMLParser):
+    """Collects an Anki field's visible text, with its line breaks kept.
+
+    Markup is dropped rather than shown. That matters because the field can hold
+    either of two things: text this add-on wrote (escaped, so it contains no
+    tags at all) or text typed into Anki's own note editor (real HTML). For the
+    first, dropping tags is a no-op and ``convert_charrefs`` undoes the escape
+    exactly, so the round trip is lossless and re-saving is byte-identical. For
+    the second, the dialog shows the words rather than the tags -- where merely
+    unescaping would have displayed ``<b>bold</b>`` as literal text and then
+    escaped it on save, putting those tags on the card for the learner to read.
+
+    Line breaks are emitted lazily, so a run of block tags cannot introduce a
+    leading or trailing newline that was never in the text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._pending_break = False
+
+    def handle_data(self, data: str) -> None:
+        if not data:
+            return
+        if self._pending_break and self._parts:
+            self._parts.append("\n")
+        self._pending_break = False
+        self._parts.append(data)
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag == "br":
+            self._pending_break = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _BLOCK_TAGS:
+            self._pending_break = True
+
+    @property
+    def text(self) -> str:
+        return "".join(self._parts)
+
+
+def _field_text(value: str) -> str:
+    """An Anki field as plain text. Never raises: a field is user input."""
+    if not value:
+        return ""
+    parser = _FieldText()
+    try:
+        parser.feed(value)
+        parser.close()
+    except Exception:
+        # HTMLParser is lenient, but a field is whatever someone typed; showing
+        # the raw value beats refusing to open the note.
+        return value
+    return parser.text
+
+
+def _stored_ordinal(value: Any) -> int:
+    """A stored high-water mark, or 0 when the note carries none."""
+    try:
+        ordinal = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return ordinal if ordinal > 0 else 0
+
 
 def _stored_flag(value: Any) -> bool | None:
     """A boolean the payload actually stored, or ``None`` for "not stored".
@@ -150,8 +225,16 @@ class NoteReader:
             structures=structures,
             options=options,
             image_filename=_extract_image_filename(fields.get(spec.image_field, "")),
-            header=fields.get(spec.header_field, ""),
-            back_extra=fields.get(spec.back_extra_field, ""),
+            # These land in a plain-text box, so they come back as plain text --
+            # and ALSO verbatim, because the conversion is deliberately lossy
+            # (an <img> a user put there through Anki's own editor has no plain
+            # text at all). The dialog writes the verbatim copy back when its
+            # box was never edited, so opening a note and pressing Save cannot
+            # quietly strip a picture or a link out of it.
+            header=_field_text(fields.get(spec.header_field, "")),
+            back_extra=_field_text(fields.get(spec.back_extra_field, "")),
+            header_source=fields.get(spec.header_field, ""),
+            back_extra_source=fields.get(spec.back_extra_field, ""),
         )
 
     def _parse_payload(
@@ -183,7 +266,12 @@ class NoteReader:
             return self._structures(payload), Direction.FORWARD, CardMode.MULTI, None, None
         if isinstance(payload, dict) and isinstance(payload.get("structures"), list):
             return (
-                self._structures(payload["structures"]),
+                self._structures(
+                    payload["structures"],
+                    # A legacy note has no high-water mark; its highest ordinal
+                    # is the right start, because nothing has been deleted yet.
+                    _stored_ordinal(payload.get("nextOrd")),
+                ),
                 Direction.coerce(payload.get("direction"), Direction.FORWARD),
                 CardMode.coerce(payload.get("mode"), CardMode.MULTI),
                 _stored_flag(payload.get("contextLabels")),
@@ -194,7 +282,7 @@ class NoteReader:
         raise ValueError(_MALFORMED)
 
     @staticmethod
-    def _structures(entries: Any) -> StructureSet:
+    def _structures(entries: Any, next_ordinal: int = 0) -> StructureSet:
         """``StructureSet.from_dicts``, holding this module's error contract.
 
         ``from_dicts`` indexes ``data["ord"]`` and calls ``int``/``float`` on the
@@ -209,12 +297,12 @@ class NoteReader:
         the point of this method is the message, not the crash.
 
         A message that already reads well is kept. ``StructureSet`` goes to
-        trouble to say "ordinals must be exactly 1..N with no gaps or duplicates;
-        got [1, 3]", which is something a user can act on, and replacing it with
-        "malformed" threw that away.
+        trouble to say "structure ordinals must be distinct; got [2, 2]", which
+        is something a user can act on, and replacing it with "malformed" threw
+        that away.
         """
         try:
-            return StructureSet.from_dicts(entries)
+            return StructureSet.from_dicts(entries, next_ordinal=next_ordinal)
         except ValueError as exc:
             raise ValueError(str(exc) or _MALFORMED) from exc
         except (KeyError, TypeError, OverflowError) as exc:

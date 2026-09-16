@@ -328,6 +328,65 @@ def test_a_corrupt_structure_entry_is_reported_as_unreadable():
             reader.read({"Structures": encode_json_b64(entries)})
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "plain",
+        "a < b & c",
+        "S&P 500",
+        "line one\nline two",
+        "  leading and trailing  ",
+        "<>&",
+        "para\n\npara",
+        "\u5fc3\u81d3 \u2014 emoji \U0001F600",
+    ],
+)
+def test_a_plain_text_field_survives_the_round_trip_exactly(text: str):
+    # NoteFactory escapes on the way in and this reads it back, so re-saving a
+    # note nobody edited must be byte-identical. Escaping emits no tags, so
+    # dropping tags is a no-op and charref conversion undoes the escape exactly.
+    import html
+
+    from randomized_occlusion.collection.note_reader import _field_text
+
+    assert _field_text(html.escape(text, quote=False)) == text
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ("<b>bold</b>", "bold"),
+        ("a<br>b", "a\nb"),
+        ("a<br/>b", "a\nb"),
+        ("<div>one</div><div>two</div>", "one\ntwo"),
+        ("<div>only</div>", "only"),  # no newline invented at either end
+        ("<br>leading", "leading"),  # a break before any text is not one
+        ("<div></div>after", "after"),
+        ("<div>a</div><br><div>b</div>", "a\nb"),  # runs collapse to one
+        ("a &amp; b", "a & b"),
+        ("<ul><li>x</li><li>y</li></ul>", "x\ny"),
+    ],
+)
+def test_a_field_edited_in_ankis_own_editor_reads_as_its_words(stored, expected):
+    # The field can also hold real HTML, because Anki's note editor writes it.
+    # Merely unescaping would show "<b>bold</b>" as literal text in the dialog's
+    # plain-text box and then escape it on save, putting those tags on the card
+    # for the learner to read. Showing the words loses the bold and nothing else.
+    from randomized_occlusion.collection.note_reader import _field_text
+
+    assert _field_text(stored) == expected
+
+
+def test_reading_a_field_never_raises():
+    # A field is whatever someone typed; refusing to open the note is not an
+    # option available to us.
+    from randomized_occlusion.collection.note_reader import _field_text
+
+    for junk in ("<", "<<<", "<div", "a<b>c", "&#xZZ;", "<!--", "</>"):
+        assert isinstance(_field_text(junk), str)
+
+
 def test_an_out_of_range_number_is_reported_as_unreadable():
     # int() and float() raise OverflowError, not ValueError, for values ordinary
     # JSON can carry. render_config already catches OverflowError on both its
@@ -343,6 +402,7 @@ def test_an_out_of_range_number_is_reported_as_unreadable():
     huge = "9" * 401
     payloads = [
         f'[{{"ord": 1, "x": {huge}, "y": 0.2, "label": "a"}}]',
+        # An ordinal past Anki's 32-bit card ordinal: legal JSON, no card.
         f'[{{"ord": {huge}0, "x": 0.1, "y": 0.2, "label": "a"}}]',
         f'[{{"ord": 1, "x": 0.1, "y": {huge}, "label": "a"}}]',
     ]
@@ -359,12 +419,12 @@ def test_a_readable_validation_message_survives():
 
     from randomized_occlusion.domain.codec import encode_json_b64
 
-    gapped = [
-        {"ord": 1, "x": 0.1, "y": 0.2, "label": "a"},
-        {"ord": 3, "x": 0.3, "y": 0.4, "label": "b"},
+    repeated = [
+        {"ord": 2, "x": 0.1, "y": 0.2, "label": "a"},
+        {"ord": 2, "x": 0.3, "y": 0.4, "label": "b"},
     ]
     with pytest.raises(ValueError, match="ordinals"):
-        NoteReader(DEFAULT_SPEC).read({"Structures": encode_json_b64(gapped)})
+        NoteReader(DEFAULT_SPEC).read({"Structures": encode_json_b64(repeated)})
 
 
 def test_an_uninterpretable_stored_flag_defers_to_the_default():

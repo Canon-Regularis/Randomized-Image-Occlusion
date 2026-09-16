@@ -47,6 +47,12 @@ class MarkupResult:
     existing_image_filename: str | None
     # Only meaningful when the saver wants a deck (creation).
     deck_name: str | None
+    #: The stored field, when the dialog's box was never edited. Written back
+    #: verbatim so re-saving cannot strip markup the plain-text box could not
+    #: represent -- a picture or a link added in Anki's own editor. ``None``
+    #: means "the user typed this", so escape it.
+    header_html: str | None = None
+    back_extra_html: str | None = None
 
 
 def _progress_parent(dialog: Any) -> Any:
@@ -109,6 +115,8 @@ class CreateNoteSaver(NoteSaver):
             options=result.options,
             header=result.header,
             back_extra=result.back_extra,
+            header_html=result.header_html,
+            back_extra_html=result.back_extra_html,
         )
         count = result.structures.card_count(result.options)
         add_randomized_occlusion_note(
@@ -148,6 +156,8 @@ class UpdateNoteSaver(NoteSaver):
             new_image_path=result.new_image_path,
             header=result.header,
             back_extra=result.back_extra,
+            header_html=result.header_html,
+            back_extra_html=result.back_extra_html,
         )
         update_randomized_occlusion_note(
             parent=_progress_parent(dialog),

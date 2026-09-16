@@ -44,10 +44,57 @@ def test_build_populates_all_fields():
     assert content.fields["Ordinals"] == "{{c1::Aorta}}{{c2::Vena cava}}"
 
 
-def test_header_and_back_extra_pass_through_unmodified():
-    content = _build(header="<b>H</b> & more", back_extra="line 1\nline 2")
-    assert content.fields["Header"] == "<b>H</b> & more"
-    assert content.fields["Back Extra"] == "line 1\nline 2"
+def test_header_and_back_extra_are_escaped_as_the_plain_text_they_are():
+    # Both come from a QPlainTextEdit, so they are plain text, but the fields are
+    # rendered as HTML. Unescaped, "a < b" swallowed everything up to the next
+    # ">" and an accidental tag reshaped the card. Newlines are NOT touched --
+    # the .ro-extra rule renders them with white-space: pre-wrap.
+    content = _build(header="<b>H</b> & more", back_extra="a < b\n<i>x</i> & y")
+    assert content.fields["Header"] == "&lt;b&gt;H&lt;/b&gt; &amp; more"
+    assert content.fields["Back Extra"] == "a &lt; b\n&lt;i&gt;x&lt;/i&gt; &amp; y"
+
+
+def test_an_untouched_field_is_written_back_verbatim():
+    # The dialog's boxes are plain text, so reading a field into one drops any
+    # markup it held -- an <img> or an <a> added through Anki's own editor has
+    # no plain-text form. When the box was never edited the dialog sends the
+    # stored field instead, and it must reach the note byte-identically rather
+    # than being escaped into visible tags.
+    stored_header = 'see <img src="heart.jpg"> here'
+    stored_extra = 'ref: <a href="https://x">Gray</a>'
+    content = _build(
+        header="see  here",
+        back_extra="ref: Gray",
+        header_html=stored_header,
+        back_extra_html=stored_extra,
+    )
+    assert content.fields["Header"] == stored_header
+    assert content.fields["Back Extra"] == stored_extra
+
+
+def test_an_edited_field_takes_the_escape_path():
+    # `None` means "the user typed this", so it is escaped as plain text even
+    # when the stored value it replaces was markup.
+    content = _build(header="a < b", back_extra="c > d", header_html=None)
+    assert content.fields["Header"] == "a &lt; b"
+    assert content.fields["Back Extra"] == "c &gt; d"
+
+
+def test_the_verbatim_override_does_not_cross_fields():
+    content = _build(
+        header="h", back_extra="b", header_html="<i>H</i>", back_extra_html="<i>B</i>"
+    )
+    assert content.fields["Header"] == "<i>H</i>"
+    assert content.fields["Back Extra"] == "<i>B</i>"
+
+
+def test_escaping_never_empties_a_non_empty_field():
+    # {{#Header}} / {{#Back Extra}} render their block only for a non-empty
+    # field, so an escape that could empty one would silently drop the section.
+    for text in ("<", "&", ">", "<>", "&amp;"):
+        content = _build(header=text, back_extra=text)
+        assert content.fields["Header"], f"{text!r} escaped to nothing"
+        assert content.fields["Back Extra"], f"{text!r} escaped to nothing"
 
 
 def test_image_field_is_an_img_tag_with_escaped_filename():

@@ -34,6 +34,12 @@ class NoteRequest:
     options: CardOptions = field(default_factory=CardOptions)
     header: str = ""
     back_extra: str = ""
+    #: The stored field, when the dialog's box was never edited. Written back
+    #: verbatim so re-saving cannot strip markup the plain-text box could not
+    #: represent -- a picture or a link added in Anki's own editor. ``None``
+    #: means "the user typed this", so escape it.
+    header_html: str | None = None
+    back_extra_html: str | None = None
 
 
 def add_randomized_occlusion_note(
@@ -59,6 +65,8 @@ def add_randomized_occlusion_note(
             options=request.options,
             header=request.header,
             back_extra=request.back_extra,
+            header_html=request.header_html,
+            back_extra_html=request.back_extra_html,
         )
         # Resolving the note type and the deck can fail too, so they also stay
         # outside the entry; only the note write is wrapped by it.
