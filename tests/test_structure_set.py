@@ -13,7 +13,7 @@ from randomized_occlusion.domain.card_options import (
 )
 from randomized_occlusion.domain.geometry import NormalizedPoint
 from randomized_occlusion.domain.structure import Structure
-from randomized_occlusion.domain.structure_set import StructureSet
+from randomized_occlusion.domain.structure_set import MAX_ORDINAL, StructureSet
 
 
 def _s(ordinal, label, x=0.5, y=0.5):
@@ -33,9 +33,30 @@ def test_requires_at_least_one_structure():
         StructureSet(structures=())
 
 
-def test_rejects_ordinal_gaps():
-    with pytest.raises(ValueError):
-        StructureSet(structures=(_s(1, "a"), _s(3, "c")))
+def test_accepts_ordinal_gaps():
+    # A gap is what an edit that deleted a structure leaves behind, and it is
+    # what KEEPS every surviving card testing the structure it always tested.
+    # Renumbering the survivors instead moved each later card's review history
+    # onto a different structure.
+    kept = StructureSet(structures=(_s(1, "a"), _s(3, "c")))
+    assert [s.ordinal for s in kept.ordered] == [1, 3]
+    assert kept.cloze_field(CardOptions()) == "{{c1::a}}{{c3::c}}"
+
+
+def test_rejects_ordinals_outside_ankis_range():
+    # A cloze number past a 32-bit ordinal cannot address a card at all, and
+    # with contiguity gone this is what stops a hand-edited payload asking.
+    # 500 is Anki's own ceiling: it clamps any higher cloze number to 500, so
+    # two structures past it would generate the SAME card and the rest would
+    # render "No cloze 500 found". Verified against anki 26.09.2 -- c499 gives
+    # card ord 498, but c501 and c2000 both give 499.
+    assert MAX_ORDINAL == 500
+    for bad in (0, -1, MAX_ORDINAL + 1):
+        with pytest.raises(ValueError):
+            StructureSet(structures=(_s(bad, "a"),))
+    assert StructureSet(structures=(_s(MAX_ORDINAL, "a"),)).ordered[0].ordinal == (
+        MAX_ORDINAL
+    )
 
 
 def test_rejects_duplicate_ordinals():
@@ -57,6 +78,139 @@ def test_cloze_field_uses_labels_as_answers():
 def test_cloze_field_escapes_metacharacters():
     s = StructureSet.from_unordered([_s(1, "a::b}}c")])
     assert s.cloze_field(CardOptions()) == "{{c1::a:b}c}}"
+
+
+def test_a_label_cannot_inject_markup_into_the_card():
+    # The Ordinals field is rendered as HTML, immediately before the <script>
+    # tags carrying the payload. An unescaped "<style>" made the tokeniser
+    # swallow everything up to the next closing tag, so #ro-data never became an
+    # element and EVERY OTHER card of the note drew a bare image -- no prompt, no
+    # arrow, no answer, and no error anywhere.
+    for hostile in ("<style>", "</div>", "<script>alert(1)</script>", "<!--"):
+        field = StructureSet.from_unordered([_s(1, hostile)]).cloze_field(CardOptions())
+        assert "<" not in field and ">" not in field, (
+            f"{hostile!r} reached the card as markup: {field!r}"
+        )
+
+
+def test_an_ampersand_in_a_label_is_escaped_once():
+    # `&` has to be escaped FIRST or the entities the escape itself introduces
+    # would be escaped in turn, and the learner would be graded against
+    # "&amp;lt;" rather than "<".
+    field = StructureSet.from_unordered([_s(1, "S&P <500>")]).cloze_field(CardOptions())
+    assert field == "{{c1::S&amp;P &lt;500&gt;}}"
+
+
+def test_a_label_ending_in_a_brace_keeps_its_last_character():
+    # "gene {TP53}" + the wrapper's own "}}" gives "...TP53}}}", and Anki reads
+    # the FIRST two as the closing delimiter: the answer became "gene {TP53" and
+    # the native type box marked the displayed answer wrong, forever. A numeric
+    # entity keeps them apart; rslib decodes it before comparing.
+    field = StructureSet.from_unordered([_s(1, "gene {TP53}")]).cloze_field(CardOptions())
+    assert field == "{{c1::gene {TP53&#125;}}"
+    assert not field.endswith("}}}"), "the answer still runs into the delimiter"
+
+
+def test_deleting_a_structure_leaves_every_other_card_where_it_was():
+    # The whole point. An ordinal IS an Anki card -- its due date, its interval,
+    # its lapses -- and col.update_note rewrites the field without touching the
+    # card rows. Renumbering the survivors therefore handed card 2's six months
+    # of review to what used to be structure 3, silently, with nothing visible
+    # in the UI. Plain Anki does not do this: deleting {{c2::...}} by hand
+    # leaves c1/c3/c4/c5 exactly as they were.
+    names = ["Aorta", "Pulmonary trunk", "SVC", "IVC", "Left atrium"]
+    before = StructureSet.from_unordered([_s(1, n) for n in names])
+    assert before.cloze_field(CardOptions()) == (
+        "{{c1::Aorta}}{{c2::Pulmonary trunk}}{{c3::SVC}}{{c4::IVC}}{{c5::Left atrium}}"
+    )
+
+    # The editor hands back the survivors, each still carrying its own ordinal.
+    survivors = [(s.ordinal, s) for s in before.ordered if s.label != "Pulmonary trunk"]
+    after = StructureSet.keeping_ordinals(survivors)
+
+    assert after.cloze_field(CardOptions()) == (
+        "{{c1::Aorta}}{{c3::SVC}}{{c4::IVC}}{{c5::Left atrium}}"
+    )
+    kept = {s.ordinal: s.label for s in after.ordered}
+    for structure in before.ordered:
+        if structure.label == "Pulmonary trunk":
+            assert structure.ordinal not in kept, "the freed ordinal was reused"
+        else:
+            assert kept[structure.ordinal] == structure.label, (
+                f"c{structure.ordinal} now tests {kept[structure.ordinal]!r}, "
+                f"not {structure.label!r}"
+            )
+
+
+@pytest.mark.parametrize("deleted", ["a", "b", "c"])
+def test_a_structure_added_after_a_deletion_never_reuses_the_freed_ordinal(deleted: str):
+    # Reusing it would hand the new structure the deleted one's card, and with
+    # it a review history that belongs to something else entirely.
+    #
+    # Every position is exercised, because deleting the HIGHEST one is the case
+    # `max(surviving) + 1` gets wrong: that maximum drops back the moment the
+    # top structure goes, so the freed number is handed straight out again.
+    before = StructureSet.from_unordered([_s(1, "a"), _s(1, "b"), _s(1, "c")])
+    freed = {s.ordinal for s in before.ordered if s.label == deleted}
+    survivors = [(s.ordinal, s) for s in before.ordered if s.label != deleted]
+    with_new = StructureSet.keeping_ordinals(
+        [*survivors, (None, _s(1, "d"))], next_ordinal=before.next_ordinal
+    )
+
+    new_ordinal = next(s.ordinal for s in with_new.ordered if s.label == "d")
+    assert new_ordinal not in freed, (
+        f"deleting {deleted!r} freed c{freed} and the new structure took it"
+    )
+    for structure in before.ordered:
+        if structure.label == deleted:
+            continue
+        kept = {s.ordinal: s.label for s in with_new.ordered}
+        assert kept[structure.ordinal] == structure.label
+
+
+def test_the_high_water_mark_survives_a_save_and_reload():
+    # It rides in the payload, because the survivors alone cannot express it:
+    # after deleting the top structure they look exactly like a note that never
+    # had one.
+    from randomized_occlusion.domain.codec import decode_json_b64
+
+    before = StructureSet.from_unordered([_s(1, "a"), _s(1, "b"), _s(1, "c")])
+    survivors = [(s.ordinal, s) for s in before.ordered if s.label != "c"]
+    after = StructureSet.keeping_ordinals(survivors, next_ordinal=before.next_ordinal)
+    assert after.next_ordinal == 4, "the mark dropped back with the deletion"
+
+    payload = decode_json_b64(after.to_payload_base64(CardOptions()))
+    assert payload["nextOrd"] == 4
+    reloaded = StructureSet.from_dicts(
+        payload["structures"], next_ordinal=payload["nextOrd"]
+    )
+    added = StructureSet.keeping_ordinals(
+        [*[(s.ordinal, s) for s in reloaded.ordered], (None, _s(1, "d"))],
+        next_ordinal=reloaded.next_ordinal,
+    )
+    assert next(s.ordinal for s in added.ordered if s.label == "d") == 4
+
+
+def test_a_legacy_note_without_a_mark_starts_after_its_highest_ordinal():
+    # Nothing has been deleted from it yet, so its maximum IS the high-water
+    # mark and no ordinal is at risk of being reused.
+    legacy = StructureSet.from_dicts(
+        [
+            {"ord": 1, "x": 0.1, "y": 0.1, "label": "a"},
+            {"ord": 5, "x": 0.2, "y": 0.2, "label": "b"},
+        ]
+    )
+    assert legacy.next_ordinal == 6
+
+
+def test_keeping_ordinals_numbers_a_brand_new_note_from_one():
+    fresh = StructureSet.keeping_ordinals([(None, _s(1, "a")), (None, _s(1, "b"))])
+    assert [s.ordinal for s in fresh.ordered] == [1, 2]
+
+
+def test_keeping_ordinals_rejects_two_structures_claiming_one_card():
+    with pytest.raises(ValueError):
+        StructureSet.keeping_ordinals([(2, _s(1, "a")), (2, _s(1, "b"))])
 
 
 def test_cloze_field_is_the_same_for_every_direction():

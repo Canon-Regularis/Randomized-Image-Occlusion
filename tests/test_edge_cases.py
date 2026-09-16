@@ -73,11 +73,18 @@ def test_very_long_label_roundtrips() -> None:
     assert loaded.ordered[0].label == label
 
 
-def test_label_of_only_cloze_metacharacters_is_neutralised_in_cloze() -> None:
-    field = _one("{{::}}").cloze_field(CardOptions(direction=Direction.FORWARD))
+@pytest.mark.parametrize("label", ["{{::}}", "}", "}}", "}}}}", "x}"])
+def test_label_of_only_cloze_metacharacters_is_neutralised_in_cloze(label: str) -> None:
+    # The bare-brace cases matter separately: their ESCAPED form ends in "}",
+    # which used to run straight into the wrapper's own "}}" and lose a
+    # character. "{{::}}" alone never exercised that.
+    field = _one(label).cloze_field(CardOptions(direction=Direction.FORWARD))
     answer = re.findall(r"\{\{c\d+::(.*?)\}\}", field, flags=re.DOTALL)[0]
     assert "{{" not in answer and "}}" not in answer and "::" not in answer
     assert answer.strip()  # never collapses to an empty cloze answer
+    assert not answer.endswith("}"), (
+        f"{label!r} escaped to {answer!r}, which merges with the closing braces"
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,12 +126,24 @@ def test_normalized_point_rejects_non_finite(bad: float) -> None:
 # ---- structure-set invariants ------------------------------------------------
 
 
-def test_structure_set_rejects_non_contiguous_ordinals() -> None:
+def test_structure_set_keeps_non_contiguous_ordinals() -> None:
+    # A note whose second structure was deleted legitimately reads back as
+    # 1, 3, ...; renumbering it here would undo the whole point of the gap.
+    kept = StructureSet.from_dicts(
+        [
+            {"ord": 1, "x": 0.1, "y": 0.1, "label": "a"},
+            {"ord": 3, "x": 0.2, "y": 0.2, "label": "b"},  # gap: no 2
+        ]
+    )
+    assert [s.ordinal for s in kept.ordered] == [1, 3]
+
+
+def test_structure_set_rejects_duplicate_ordinals() -> None:
     with pytest.raises(ValueError):
         StructureSet.from_dicts(
             [
-                {"ord": 1, "x": 0.1, "y": 0.1, "label": "a"},
-                {"ord": 3, "x": 0.2, "y": 0.2, "label": "b"},  # gap: no 2
+                {"ord": 2, "x": 0.1, "y": 0.1, "label": "a"},
+                {"ord": 2, "x": 0.2, "y": 0.2, "label": "b"},
             ]
         )
 

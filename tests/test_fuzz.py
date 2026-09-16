@@ -160,6 +160,13 @@ def test_cloze_answers_never_contain_raw_metacharacters(seed: int) -> None:
         assert "{{" not in answer
         assert "}}" not in answer
         assert "::" not in answer
+        # Nor any markup: this field is rendered as HTML next to the payload
+        # scripts, so an unescaped "<" takes the rest of the card with it.
+        assert "<" not in answer
+        assert ">" not in answer
+        # And the answer must not run into the wrapper's own closing braces,
+        # which silently truncated it by one character.
+        assert not answer.endswith("}")
 
 
 def _random_json(rng: random.Random, depth: int):

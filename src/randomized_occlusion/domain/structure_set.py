@@ -10,11 +10,18 @@ from .card_options import CardMode, CardOptions
 from .codec import encode_json_b64
 from .structure import Structure, StructureDict
 
-__all__ = ["StructureSet"]
+__all__ = ["MAX_ORDINAL", "StructureSet"]
+
+#: Anki clamps any cloze number above 500 to 500, so two structures past it
+#: would generate the SAME card and the rest would render "No cloze 500 found".
+#: Verified against anki 26.09.2: c499 -> card ord 498, but c501 and c2000 both
+#: -> card ord 499. Ordinals no longer have to be contiguous, so this is what
+#: stops a note asking for one Anki cannot address.
+MAX_ORDINAL = 500
 
 
 def _cloze_escape(label: str) -> str:
-    """Neutralise cloze metacharacters so a label is safe as a cloze answer.
+    """Neutralise cloze *and* HTML metacharacters so a label is safe here.
 
     Collapse to a fixpoint, not in a single pass: a one-shot replace turns
     ``{{{{`` into ``{{``, reconstituting a live cloze opener, so a crafted
@@ -25,11 +32,32 @@ def _cloze_escape(label: str) -> str:
     pass only shortens the string, so this always terminates. (The visible answer
     comes from the base64 ``Structures`` payload, so a stronger escape here never
     changes what the learner sees.)
+
+    The field is then rendered as HTML, immediately before the ``<script>`` tags
+    carrying the payload, so a label is markup once it lands here. An unescaped
+    ``<style>`` or ``<!--`` makes the tokeniser swallow everything up to the next
+    closing tag, and ``#ro-data`` never becomes an element: ``readData`` finds
+    nothing, ``render`` bails on an empty structure list, and EVERY OTHER card of
+    the note shows a bare image -- no prompt, no arrow, no answer, no error.
+    ``</div>`` is quieter and worse: ``#ro-ordinal`` closes early, so
+    ``readActiveOrdinal`` finds no ``.cloze`` and falls back to 1, and every card
+    of the note asks about structure 1 while Anki grades against its own. Hence
+    the HTML escape.
+
+    Finally, a label whose escaped form ends in ``}`` would merge with the
+    wrapper's own ``}}``: Anki reads the first two as the closing delimiter and
+    the answer loses its last character. A numeric entity keeps them apart
+    without changing the text Anki grades, because rslib strips HTML and decodes
+    entities on the expected side before comparing.
     """
     previous = ""
     while previous != label:
         previous = label
         label = label.replace("{{", "{").replace("}}", "}").replace("::", ":")
+    # `&` first, or the entities introduced below would be escaped in turn.
+    label = label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if label.endswith("}"):
+        label = label[:-1] + "&#125;"
     return label
 
 
@@ -39,25 +67,46 @@ class StructureSet:
 
     Invariants enforced at construction time:
       * at least one structure is present;
-      * ordinals are exactly ``1..N`` with no gaps or duplicates.
+      * ordinals are positive and distinct.
 
-    The contiguous-ordinal invariant matters because each ordinal becomes an
-    Anki cloze ``{{cN::...}}`` and therefore one generated card; gaps would
-    create blank cards and break the structure<->card mapping.
+    Ordinals need NOT be contiguous. Each one becomes an Anki cloze
+    ``{{cN::...}}``, and Anki binds a card to its ordinal for life, so an
+    ordinal is a card's identity and its whole review history. Renumbering after
+    a deletion therefore hands card 2's six months of scheduling to what used to
+    be structure 3 -- silently, with nothing visible in the UI. Deleting the
+    second of five structures leaves ``c1, c3, c4, c5``, exactly as deleting a
+    cloze by hand does in Anki's own editor: the orphaned card becomes an empty
+    card for Tools > Empty Cards to clear, and every other card goes on testing
+    what it always tested.
     """
 
     structures: tuple[Structure, ...]
+    #: The next ordinal to hand out, which only ever goes up. Deleting the
+    #: HIGHEST structure frees its number, and `max(surviving) + 1` would hand
+    #: that number straight back to the next marker added -- which re-adopts the
+    #: deleted structure's card, and its whole review history, exactly the theft
+    #: the gapped ordinals exist to prevent. Carried in the payload so it
+    #: survives the round trip; a legacy note without one starts at max + 1,
+    #: which is right because nothing has been deleted from it yet.
+    next_ordinal: int = 0
 
     def __post_init__(self) -> None:
         if not self.structures:
             raise ValueError("a StructureSet must contain at least one structure")
         ordinals = sorted(s.ordinal for s in self.structures)
-        expected = list(range(1, len(self.structures) + 1))
-        if ordinals != expected:
+        if len(set(ordinals)) != len(ordinals):
             raise ValueError(
-                "structure ordinals must be exactly 1..N with no gaps or "
-                f"duplicates; got {ordinals}"
+                f"structure ordinals must be distinct; got {ordinals}"
             )
+        # Only the upper bound is checked here: Structure itself refuses an
+        # ordinal below 1, so a set cannot hold one.
+        if ordinals[-1] > MAX_ORDINAL:
+            raise ValueError(
+                f"structure ordinals must be at most {MAX_ORDINAL}; got {ordinals}"
+            )
+        floor = ordinals[-1] + 1
+        if self.next_ordinal < floor:
+            object.__setattr__(self, "next_ordinal", floor)
 
     def __iter__(self) -> Iterator[Structure]:
         return iter(self.structures)
@@ -76,8 +125,11 @@ class StructureSet:
     def from_unordered(cls, labels_and_points: Sequence[Structure]) -> StructureSet:
         """Build a set from structures whose ordinals may be unset/duplicated.
 
-        Ordinals are reassigned ``1..N`` in the given order, so callers (e.g. the
-        editor) need not manage ordinals themselves.
+        Ordinals are reassigned ``1..N`` in the given order, so callers creating
+        a BRAND-NEW note need not manage ordinals themselves. Do not use this to
+        re-save an existing note: it would renumber the survivors and move every
+        later card's review history onto a different structure. Use
+        :meth:`keeping_ordinals` there.
         """
         renumbered = tuple(
             Structure(ordinal=i, target=s.target, label=s.label)
@@ -85,19 +137,58 @@ class StructureSet:
         )
         return cls(structures=renumbered)
 
+    @classmethod
+    def keeping_ordinals(
+        cls,
+        marked: Sequence[tuple[int | None, Structure]],
+        *,
+        next_ordinal: int = 0,
+    ) -> StructureSet:
+        """Build a set from ``(existing ordinal or None, structure)`` pairs.
+
+        A structure that already has an ordinal keeps it, so its card keeps its
+        scheduling. A new one is given the next ordinal after the highest ever
+        used here -- never a number freed by a deletion, because Anki would hand
+        the new structure the deleted one's card, and with it a review history
+        that belongs to something else entirely.
+        """
+        # Duplicates are not checked here: __post_init__ rejects them for every
+        # construction path, and one message for one rule reads better than two.
+        #
+        # `next_ordinal` is the note's own high-water mark, and it is what makes
+        # "never a number freed by a deletion" true even when the deletion was
+        # the highest structure -- `max(kept)` alone drops back the moment the
+        # top one goes.
+        kept = [ordinal for ordinal, _ in marked if ordinal is not None]
+        nxt = max(max(kept, default=0) + 1, next_ordinal)
+        out = []
+        for ordinal, structure in marked:
+            if ordinal is None:
+                ordinal, nxt = nxt, nxt + 1
+            out.append(
+                Structure(ordinal=ordinal, target=structure.target, label=structure.label)
+            )
+        return cls(structures=tuple(out), next_ordinal=nxt)
+
     # -- serialization ---------------------------------------------------------
 
     @classmethod
-    def from_dicts(cls, items: Sequence[StructureDict]) -> StructureSet:
+    def from_dicts(
+        cls, items: Sequence[StructureDict], *, next_ordinal: int = 0
+    ) -> StructureSet:
         """Build a set from already-parsed structure dicts (the payload's
         ``structures``).
 
-        Ordinals must already be contiguous ``1..N``. Unlike
-        :meth:`from_unordered`, this does *not* renumber: ordinals map to Anki
-        cloze card ordinals, so a corrupt/hand-edited payload with gaps should
-        surface as an error rather than be silently (and wrongly) renumbered.
+        Ordinals are taken as given. Unlike :meth:`from_unordered`, this does
+        *not* renumber: an ordinal maps to an Anki cloze card ordinal and so to
+        that card's review history, and a note edited since its creation can
+        legitimately carry gaps. Only duplicates and non-positive values are
+        rejected, by :meth:`__post_init__`.
         """
-        return cls(structures=tuple(Structure.from_dict(item) for item in items))
+        return cls(
+            structures=tuple(Structure.from_dict(item) for item in items),
+            next_ordinal=next_ordinal,
+        )
 
     @classmethod
     def from_json(cls, payload: str) -> StructureSet:
@@ -136,6 +227,11 @@ class StructureSet:
         can't be un-escaped without breaking Anki's cloze parsing, so for labels
         with ``::``/``{{``/``}}`` use reveal or single-card mode.
 
+        The HTML escape and the trailing-``}`` entity are a different matter: both
+        survive Anki's own comparison, which strips HTML and decodes entities on
+        the expected side, so a label containing ``<``, ``&`` or a trailing ``}``
+        grades on exactly what the learner sees.
+
         Multi mode emits one card per structure. Single mode emits exactly ONE
         card whatever the structure count, and that card cycles through all of
         them (its cloze answer is inert). In multi mode the card's direction
@@ -164,6 +260,10 @@ class StructureSet:
             "direction": options.direction.value,
             "interaction": options.interaction.value,
             "contextLabels": options.context_labels,
+            # The note's high-water mark, so a freed ordinal is never handed out
+            # again after a reopen. render.js ignores the key; it exists for the
+            # editor's next save.
+            "nextOrd": self.next_ordinal,
             "structures": [s.to_dict() for s in self.ordered],
         }
         return encode_json_b64(payload)
