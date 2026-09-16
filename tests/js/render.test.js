@@ -175,11 +175,65 @@ test("boxBorderToward lands on the box edge toward the target", () => {
   assert.ok(Math.abs(p.y - 115) < 1e-6, `centre y: ${p.y}`);
 });
 
-test("boxBorderToward returns the centre for a coincident target", () => {
+test("boxBorderToward still draws something for a coincident target", () => {
+  // It used to return the centre, which is a zero-length <line>: nothing is
+  // rendered, so the box sits on the image with no leader line at all.
   const box = { x: 0, y: 0, w: 40, h: 30 };
-  const p = I.boxBorderToward(box, { x: 20, y: 15 }); // centre == target
+  const target = { x: 20, y: 15 }; // centre == target
+  const p = I.boxBorderToward(box, target);
   assert.equal(p.x, 20);
-  assert.equal(p.y, 15);
+  assert.equal(p.y, 0, "the tail should sit on the top border");
+  assert.ok(Math.hypot(target.x - p.x, target.y - p.y) > 1, "nothing would be drawn");
+});
+
+test("the arrow tail always sits on the box outline", () => {
+  // The contract is about WHERE the tail is, not how long the segment is. A
+  // target just outside the border legitimately gives a short arrow -- the box
+  // really is touching its target. Leaving from the FAR border to lengthen it
+  // was tried and is worse: the extra length runs underneath an opaque box, so
+  // it is just as invisible and now points through the label as well.
+  const box = { x: 100, y: 100, w: 60, h: 40 };
+  const cx = 130;
+  const cy = 120;
+  const onBorder = (x, y) =>
+    Math.abs(Math.abs(x - cx) - 30) < 1e-6 || Math.abs(Math.abs(y - cy) - 20) < 1e-6;
+
+  for (const eps of [0.01, 0.5, 2, 8, 80]) {
+    for (const [ux, uy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8], [-0.8, 0.6]]) {
+      // Distance along this ray at which it crosses the outline, so `eps` is a
+      // real distance OUTSIDE the box rather than a fraction of each half-axis
+      // (which for a diagonal lands inside it).
+      const hit = 1 / Math.max(Math.abs(ux) / 30, Math.abs(uy) / 20);
+      const target = { x: cx + ux * (hit + eps), y: cy + uy * (hit + eps) };
+      const tail = I.boxBorderToward(box, target);
+      assert.ok(onBorder(tail.x, tail.y),
+        `eps=${eps} dir=${ux},${uy}: tail (${tail.x}, ${tail.y}) is not on the outline`);
+      // Outside the box: the tail is on the target's OWN side of the centre, so
+      // the segment runs from the box straight to the dot without crossing it.
+      const dot = (tail.x - cx) * (target.x - cx) + (tail.y - cy) * (target.y - cy);
+      assert.ok(dot > 0,
+        `eps=${eps} dir=${ux},${uy}: the arrow leaves from the far border`);
+      assert.ok(Math.hypot(target.x - tail.x, target.y - tail.y) > 0,
+        `eps=${eps} dir=${ux},${uy}: zero-length line`);
+    }
+  }
+});
+
+test("an interior target is reached from the far border, never from itself", () => {
+  // Inside its own box the near border is PAST the target, so the arrow would
+  // be drawn backwards under the label; clamping to the target gives a
+  // zero-length line that renders as nothing at all.
+  const box = { x: 100, y: 100, w: 60, h: 40 };
+  const cx = 130;
+  const cy = 120;
+  for (const [ox, oy] of [[5, 0], [0, 5], [-8, 3], [2, -7]]) {
+    const target = { x: cx + ox, y: cy + oy };
+    const tail = I.boxBorderToward(box, target);
+    const dot = (tail.x - cx) * (target.x - cx) + (tail.y - cy) * (target.y - cy);
+    assert.ok(dot < 0, `offset ${ox},${oy}: the tail is on the target's own side`);
+    assert.ok(Math.hypot(target.x - tail.x, target.y - tail.y) > 1,
+      `offset ${ox},${oy}: nothing would be drawn`);
+  }
 });
 
 // ---- single-card cycler layout ----------------------------------------------

@@ -576,6 +576,64 @@ test("the retry for a card whose image never arrives is bounded", () => {
   assert.equal(card.pendingTimers(), 0, "the retry is still armed after giving up");
 });
 
+test("an image that loads only after the safety net has fired still renders", () => {
+  // The guard used to be per-invocation: the retry re-entered run(), so a slow
+  // image built up ~30 guards and ~30 safety nets, and every net fired while
+  // there was still nothing to measure -- spending all of them. When `load`
+  // finally landed, every go() returned at its first line and the card stayed
+  // blank for the whole review. Only a resize ever rescued it, which is the one
+  // escape hatch the older test happened to use.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  card.flushTimers(2000); // every net fires, and the bounded watch gives up
+  assert.equal(boxesOf(card.svg).length, 0, "nothing can be drawn at 0x0");
+
+  // The ordinary browser sequence for a slow image. No resize on a fresh page.
+  card.img._rect = { width: 800, height: 600, left: 0, top: 0 };
+  card.img.dispatch("load");
+  card.flushTimers(2000);
+
+  assert.equal(boxesOf(card.svg).length, 1,
+    "the card never rendered after its image finished loading");
+});
+
+test("a load that arrives before layout is not wasted", () => {
+  // `load` can fire before the element has been given a box. That must not
+  // spend the guard, and it must not be the end of the matter either: the
+  // trigger starts its own bounded watch, so the card paints as soon as there
+  // is something to measure.
+  const card = buildCard({
+    structures: ONE, timers: "manual", stage: { width: 0, height: 0 }, config: DOTS_ON,
+  });
+  card.img.dispatch("load"); // still 0x0
+  card.flushTimers(3);
+  assert.equal(boxesOf(card.svg).length, 0);
+
+  card.img._rect = { width: 800, height: 600, left: 0, top: 0 };
+  card.flushTimers(2000);
+  assert.equal(boxesOf(card.svg).length, 1,
+    "the early load event spent the guard after all");
+});
+
+test("the arrowhead orients along the line it caps", () => {
+  // "auto-start-reverse" is SVG2. Older phone WebViews drop the whole attribute
+  // and fall back to orient=0, which points every arrowhead due east regardless
+  // of where its arrow goes. The marker is only ever used as marker-end, so
+  // plain "auto" is equivalent wherever both are understood.
+  const card = buildCard({ structures: ONE, config: DOTS_ON });
+  card.render(false);
+  const markers = [];
+  (function walk(node) {
+    for (const child of node.childNodes) {
+      if (child.tagName === "marker") markers.push(child);
+      walk(child);
+    }
+  })(card.svg);
+  assert.equal(markers.length, 1, "expected exactly one arrowhead marker");
+  assert.equal(markers[0].attributes.orient, "auto");
+});
+
 test("the retry for an image that never appears is bounded", () => {
   // A note with an empty Image field must not spin setTimeout forever.
   const card = buildCard({
@@ -827,6 +885,56 @@ test("a long prompt does not squeeze the boxes that never show it", () => {
     "prompt they never show");
 });
 
+test("a tall prompt keeps its box on the image", () => {
+  // The clamp is sized for the LABEL, so a prompt that wraps to more lines than
+  // the label is taller than what the centre was clamped for -- and the box
+  // hangs off the top or bottom of the picture, where .ro-overlay's
+  // overflow: visible paints it over the rest of the card.
+  const stage = { width: 360, height: 270 };
+  const promptText =
+    "which of the labelled structures is the arrow pointing at right now?";
+  for (let seed = 1; seed <= 30; seed++) {
+    const card = side({
+      structures: [{ ord: 1, x: 0.5, y: 0.5, label: "Aorta" }],
+      stage, seed, direction: "forward", activeOrdinal: 1,
+      config: { showDecoyDots: true, showTargetDot: true, promptText },
+    });
+    const box = boxesOf(card.svg)[0];
+    const top = box.cy - box.h / 2;
+    const bottom = box.cy + box.h / 2;
+    assert.ok(top >= -1e-6 && bottom <= stage.height + 1e-6,
+      `seed ${seed}: the prompt box spans ${top.toFixed(1)}..${bottom.toFixed(1)} ` +
+      `on a ${stage.height}px stage`);
+  }
+});
+
+test("a long prompt does not reshape the boxes that never show it", () => {
+  // A context label can never display promptText, so its box must be sized the
+  // same whatever the prompt is. Wrapping it to the prompt's width narrowed it
+  // and reflowed the label for no reason.
+  const WORDY = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Posterior inferior cerebellar artery" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Superior mesenteric arterial trunk" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left anterior descending branch" },
+  ];
+  const shape = (promptText) => {
+    const card = side({
+      structures: WORDY, stage: { width: 320, height: 240 },
+      direction: "forward", contextLabels: true, activeOrdinal: 1, seed: 99,
+      config: { showDecoyDots: true, showTargetDot: true, promptText },
+    });
+    return boxesOf(card.svg)
+      .filter((b) => b.text !== promptText)
+      .map((b) => `${b.text}:${b.w.toFixed(4)}x${b.h.toFixed(4)}`)
+      .sort();
+  };
+  assert.deepEqual(
+    shape("which structure is marked here, exactly?"),
+    shape("?"),
+    "a wide prompt reshaped the context labels",
+  );
+});
+
 test("context labels honour the dot settings", () => {
   // The non-context path consults showDecoyDots and showTargetDot; the context
   // path drew a dot on every structure whatever the config said. Each of the
@@ -864,9 +972,16 @@ test("the answer side agrees with the question side when the seed cannot be stor
     { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
     { ord: 4, x: 0.35, y: 0.6, label: "Pulmonary trunk" },
   ];
+  // Both durable stores are degraded together: with either one working the
+  // seed simply carries, which is the separate test below. This is the case
+  // where nothing can hold it and both sides must land on the same
+  // deterministic fallback instead.
   for (const storage of ["unavailable", "quota"]) {
     for (const activeOrdinal of [1, 2, 3, 4]) {
-      const options = { structures, direction: "both", activeOrdinal, storage, config: DOTS_ON };
+      const options = {
+        structures, direction: "both", activeOrdinal,
+        storage, localStorage: storage, config: DOTS_ON,
+      };
       const front = buildCard(options);
       front.render(true); // the minting question view
       const back = buildCard(Object.assign({}, options, { back: true }));
@@ -900,7 +1015,7 @@ test("a failed write is detected even when a previous card's seed is stored", ()
     const shared = { [SEED_KEY]: "4242" };
     const options = {
       structures, direction: "both", activeOrdinal,
-      storage: "quota", store: shared, config: DOTS_ON,
+      storage: "quota", localStorage: "quota", store: shared, config: DOTS_ON,
     };
     const front = buildCard(options);
     front.render(true); // mints, and its write throws
@@ -917,11 +1032,116 @@ test("a failed write is detected even when a previous card's seed is stored", ()
   }
 });
 
-test("a repaint keeps its place when session storage is unavailable", () => {
-  // getItem throws rather than returning null, so the stored-seed path is gone.
-  // The in-memory mirror is what stops a resize repaint re-minting and moving
-  // the box mid-review.
-  const card = buildCard({ structures: STRUCTURES, config: DOTS_ON, storage: "unavailable" });
+test("the answer side agrees when it opens in a brand-new browsing context", () => {
+  // sessionStorage is per browsing CONTEXT and the in-memory mirror is per page,
+  // so a client that answers in a fresh web view (AnkiMobile does) had neither
+  // -- and the question side could not detect that in advance, however careful
+  // its write check was. localStorage is per ORIGIN, so it carries.
+  const structures = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Vena cava" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
+  ];
+  for (const activeOrdinal of [1, 2, 3]) {
+    const origin = {}; // localStorage: shared, as it is in a real browser
+    const front = buildCard({
+      structures, direction: "both", activeOrdinal,
+      store: {}, localStore: origin, config: DOTS_ON,
+    });
+    front.render(true); // mints and stores
+
+    // A NEW context: its own empty session store, its own window (so no
+    // in-memory mirror), and the same origin-wide localStorage.
+    const back = buildCard({
+      structures, direction: "both", activeOrdinal, back: true,
+      store: {}, localStore: origin, config: DOTS_ON,
+    });
+    back.render(false);
+
+    const f = boxesOf(front.svg)[0];
+    const b = boxesOf(back.svg)[0];
+    assert.ok(near(f.cx, b.cx, 1e-6) && near(f.cy, b.cy, 1e-6),
+      `ordinal ${activeOrdinal}: the box moved from (${f.cx}, ${f.cy}) to ` +
+      `(${b.cx}, ${b.cy}) when the answer opened in a fresh context`);
+    assert.equal(front.typeBox.style.display, back.typeBox.style.display,
+      `ordinal ${activeOrdinal}: the card changed direction between sides`);
+  }
+});
+
+test("a full session store no longer forces the deterministic fallback", () => {
+  // The fallback exists for when the seed cannot be kept at all. If the durable
+  // store took it, the card should keep the layout it actually minted rather
+  // than collapsing to the one hash every card of this shape produces.
+  const structures = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Vena cava" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
+  ];
+  for (const activeOrdinal of [1, 2, 3]) {
+    const origin = {};
+    const front = buildCard({
+      structures, direction: "both", activeOrdinal,
+      storage: "quota", store: {}, localStore: origin, config: DOTS_ON,
+    });
+    front.render(true);
+
+    const fallback = String(
+      front.internals.hashString("" + activeOrdinal + structures.length),
+    );
+    assert.ok(SEED_KEY in origin, "the durable store was never written");
+    assert.notEqual(origin[SEED_KEY], fallback,
+      "the minted seed was discarded even though the durable store took it");
+
+    const back = buildCard({
+      structures, direction: "both", activeOrdinal, back: true,
+      storage: "quota", store: {}, localStore: origin, config: DOTS_ON,
+    });
+    back.render(false);
+    const f = boxesOf(front.svg)[0];
+    const b = boxesOf(back.svg)[0];
+    assert.ok(near(f.cx, b.cx, 1e-6) && near(f.cy, b.cy, 1e-6),
+      `ordinal ${activeOrdinal}: the sides disagree despite a durable seed`);
+  }
+});
+
+test("a previous card's durable seed is dropped when this card cannot store one", () => {
+  // The same stale-value hazard as the session store, one store along: if this
+  // card's write is refused and the last card's seed is left behind, the answer
+  // side reproduces THAT layout instead of this one.
+  const structures = [
+    { ord: 1, x: 0.2, y: 0.3, label: "Aorta" },
+    { ord: 2, x: 0.6, y: 0.7, label: "Vena cava" },
+    { ord: 3, x: 0.8, y: 0.2, label: "Left atrium" },
+  ];
+  for (const activeOrdinal of [1, 2, 3]) {
+    const origin = { [SEED_KEY]: "4242" }; // the previous card's seed
+    const options = {
+      structures, direction: "both", activeOrdinal,
+      storage: "quota", localStorage: "quota",
+      store: {}, localStore: origin, config: DOTS_ON,
+    };
+    const front = buildCard(options);
+    front.render(true); // mints; both writes are refused
+
+    const back = buildCard(Object.assign({}, options, { back: true }));
+    back.render(false);
+
+    const f = boxesOf(front.svg)[0];
+    const b = boxesOf(back.svg)[0];
+    assert.ok(near(f.cx, b.cx, 1e-6) && near(f.cy, b.cy, 1e-6),
+      `ordinal ${activeOrdinal}: the box moved from (${f.cx}, ${f.cy}) to ` +
+      `(${b.cx}, ${b.cy}); the answer used a previous card's durable seed`);
+  }
+});
+
+test("a repaint keeps its place when no storage is available at all", () => {
+  // getItem throws rather than returning null in BOTH stores, so every durable
+  // path is gone. The in-memory mirror is the last one left, and it is what
+  // stops a resize repaint re-minting and moving the box mid-review.
+  const card = buildCard({
+    structures: STRUCTURES, config: DOTS_ON,
+    storage: "unavailable", localStorage: "unavailable",
+  });
   card.render(true);
   const first = boxesOf(card.svg)[0];
 

@@ -98,6 +98,7 @@ NOTETYPE_FACTORY = Target(
 # scope; that one import put the whole save path beyond every test.
 SAVERS = Target("src/randomized_occlusion/editor/savers.py", ("tests/test_savers.py",))
 SPEC = Target("src/randomized_occlusion/notetype/spec.py", ("tests/test_installer.py", "tests/test_manifest.py"))
+SHORTCUTS = Target("src/randomized_occlusion/review_shortcuts.py", ("tests/test_review_shortcuts.py",))
 TEMPLATES = Target("src/randomized_occlusion/notetype/templates.py", ("tests/test_templates.py",))
 RESOURCES = Target("src/randomized_occlusion/resources.py", ("tests/test_templates.py",))
 GATEWAYS = Target("src/randomized_occlusion/collection/gateways.py", ("tests/test_gateways.py",))
@@ -240,6 +241,24 @@ MUTATIONS: list[Mutation] = [
        "        ord: ord,"),
     _m(MARKER, "the ordinal is handed back on save",
        "        ord: m.ord == null ? null : m.ord,", "        ord: null,"),
+    _m(MARKER, "an undecodable image is reported, not ignored",
+       "      imageBroken = true;", "      imageBroken = false;"),
+    _m(MARKER, "a broken image says so on its own channel",
+       '    send("ro:broken:" + (imageBroken ? "1" : "0"));',
+       '    send("ro:broken:0");'),
+    _m(MARKER, "the marker count is not used to report breakage",
+       '    send("ro:count:" + markers.length);',
+       '    send("ro:count:" + (imageBroken ? 0 : markers.length));'),
+    _m(MARKER, "a good image clears the broken latch",
+       "    imageBroken = false;\n    if (empty) empty.style.display = \"none\";",
+       '    if (empty) empty.style.display = "none";'),
+    _m(MARKER, "clearing the list reports the focus it destroyed",
+       "    reportTextFocus();\n    if (!markers.length) {",
+       "    if (!markers.length) {"),
+    _m(MARKER, "Space reaches a focused button",
+       "      if (isButton(document.activeElement)) return;",
+       "      if (false) return;"),
+
     # ----------------------------------------------------- canvas: interaction
     Mutation(MARKER, "isOverImage clips to the visible area",
              "clientX >= Math.max(r.left, s.left) &&", "clientX >= r.left &&",
@@ -542,24 +561,40 @@ MUTATIONS: list[Mutation] = [
     _m(RENDER, "the retry is bounded", "      if (attempt < 30) {", "      if (true) {"),
     _m(RENDER, "the retry counts up", "          run(attempt + 1);", "          run(attempt);"),
     _m(RENDER, "an image with no size is retried",
-       "    if ((!box.width || !box.height) && attempt < 30) {", "    if (false) {"),
+       "      if (tries < 30) {", "      if (false) {"),
+    _m(RENDER, "the watch for an unlaid-out image is bounded",
+       "      if (tries < 30) {", "      if (true) {"),
+    _m(RENDER, "the guard is spent only once there is something to measure",
+       "      if (box.width && box.height) {", "      if (true) {"),
     _m(RENDER, "the resize listener is bound once",
        "    if (!window.__roResizeBound) {", "    if (true) {"),
     _m(RENDER, "the safety net gives load and error their chance first",
-       "      window.setTimeout(go, 250);", "      window.setTimeout(go, 0);"),
+       "      }, 250);", "      }, 0);"),
     _m(RENDER, "the safety net is not a quarter of a minute",
-       "      window.setTimeout(go, 250);", "      window.setTimeout(go, 25000);"),
+       "      }, 250);", "      }, 25000);"),
     _m(RENDER, "the load listener detaches itself",
-       '      img.addEventListener("load", go, { once: true });',
-       '      img.addEventListener("load", go);'),
+       '      img.addEventListener("load", function () {\n        go(0);\n      }, { once: true });',
+       '      img.addEventListener("load", function () {\n        go(0);\n      });'),
 
     # --------------------------------------------- reviewer: the cycler's paint
     _m(RENDER, "the question side shows the prompt, not the answer",
        "          drawBox(svg, layout.centers[ci], layout.targets[ci], cfg.promptText, cfg, true, undefined, layout.targets[ci].label, true);",
        "          drawBox(svg, layout.centers[ci], layout.targets[ci], layout.targets[ci].label, cfg, true, undefined, layout.targets[ci].label, true);"),
     _m(RENDER, "a locate marker is drawn without an arrow",
-       "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false, undefined, undefined, true);",
-       "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, true, undefined, undefined, true);"),
+       "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false, undefined, undefined, false);",
+       "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, true, undefined, undefined, false);"),
+    Mutation(RENDER, "a locate marker never wraps for a prompt it cannot show",
+             "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false, undefined, undefined, false);",
+             "          drawBox(svg, layout.centers[ci], layout.targets[ci], currentStructure().label, cfg, false, undefined, undefined, true);",
+             survives=True,
+             why="Since the clamp was made label-only, `flips` no longer moves any "
+                 "centre -- it only caps the width the box wraps to, and a swept "
+                 "6400-layout probe (stages 200-800, labels up to 43 chars, 25 "
+                 "seeds) found NO layout where the prompt's width reshapes a box "
+                 "that never shows it, so the wrong value here changes nothing "
+                 "observable. Kept because it states which boxes can show a text "
+                 "the clamp never measured, which is what stops a wide prompt "
+                 "hanging off the image if the geometry ever tightens."),
     _m(RENDER, "the answer key draws every answered marker",
        "      for (var p = 0; p < state.idx && p < n; p++) {", "      for (var p = 0; p < 0 && p < n; p++) {"),
     _m(RENDER, "the answer key draws each marker from its own slot",
@@ -573,8 +608,32 @@ MUTATIONS: list[Mutation] = [
     _m(RENDER, "a correct answer is marked correct", '      if (result === "correct") return "ro-correct";', '      if (result === "correct") return undefined;'),
     _m(RENDER, "a wrong answer is marked wrong", '      if (result === "wrong") return "ro-wrong";', '      if (result === "wrong") return undefined;'),
     _m(RENDER, "the grading colour follows the answered marker",
-       "        drawBox(svg, layout.centers[ai], layout.targets[ai], layout.targets[ai].label, cfg, true, boxClass(state.results[p]));",
-       "        drawBox(svg, layout.centers[ai], layout.targets[ai], layout.targets[ai].label, cfg, true, boxClass(state.results[0]));"),
+       "boxClass(state.results[p]), undefined, forwards[p]);",
+       "boxClass(state.results[0]), undefined, forwards[p]);"),
+    Mutation(RENDER, "the answer key wraps like the question side did",
+             "boxClass(state.results[p]), undefined, forwards[p]);",
+             "boxClass(state.results[p]), undefined, true);",
+             survives=True,
+             why="Since the clamp was made label-only, `flips` no longer moves any "
+                 "centre -- it only caps the width the box wraps to, and a swept "
+                 "6400-layout probe (stages 200-800, labels up to 43 chars, 25 "
+                 "seeds) found NO layout where the prompt's width reshapes a box "
+                 "that never shows it, so the wrong value here changes nothing "
+                 "observable. Kept because it states which boxes can show a text "
+                 "the clamp never measured, which is what stops a wide prompt "
+                 "hanging off the image if the geometry ever tightens."),
+    Mutation(RENDER, "the single-card back reproduces the front's wrap",
+             "cfg, true, undefined, undefined, slot >= 0 && dirs[slot]);",
+             "cfg, true, undefined, undefined, true);",
+             survives=True,
+             why="Since the clamp was made label-only, `flips` no longer moves any "
+                 "centre -- it only caps the width the box wraps to, and a swept "
+                 "6400-layout probe (stages 200-800, labels up to 43 chars, 25 "
+                 "seeds) found NO layout where the prompt's width reshapes a box "
+                 "that never shows it, so the wrong value here changes nothing "
+                 "observable. Kept because it states which boxes can show a text "
+                 "the clamp never measured, which is what stops a wide prompt "
+                 "hanging off the image if the geometry ever tightens."),
     _m(RENDER, "the cycler controller is built once",
        "    if (!bar.__roController) {", "    if (true) {"),
 
@@ -599,25 +658,39 @@ MUTATIONS: list[Mutation] = [
        "    return { x: cx + dx * scale, y: cy + dy * scale };"),
     _m(RENDER, "an arrow to an interior target is still drawn",
        "    if (scale <= 1) return { x: cx + dx * scale, y: cy + dy * scale };",
-       "    if (scale <= 1) return { x: cx + dx * scale, y: cy + dy * scale };\n    scale = 1;"),
+       "    if (true) return { x: cx + dx * scale, y: cy + dy * scale };"),
+    _m(RENDER, "a target on the centre still gets a line",
+       "    if (dx === 0 && dy === 0) return { x: cx, y: cy - box.h / 2 };",
+       "    if (dx === 0 && dy === 0) return { x: cx, y: cy };"),
     _m(RENDER, "the clamp covers the prompt as well as the label",
        "      if (promptBox.w > clampBox.w) clampBox.w = promptBox.w;",
        "      if (false) clampBox.w = promptBox.w;"),
+    _m(RENDER, "the clamp covers the prompt's height too",
+       "      if (promptBox.h > clampBox.h) clampBox.h = promptBox.h;",
+       "      if (false) clampBox.h = promptBox.h;"),
     _m(RENDER, "only a flipping box is clamped for the prompt",
        "    if (flips) {", "    if (true) {"),
     _m(RENDER, "an unstorable seed falls back to the shared value",
        "      if (!seedPersisted(seed)) {",
        "      if (false) {"),
     _m(RENDER, "seedPersisted ignores the in-memory mirror",
-       "      return window.sessionStorage.getItem(SEED_KEY) === String(value);",
-       "      return readSeed() !== null;"),
-    _m(RENDER, "seedPersisted compares the value, not mere presence",
-       "      return window.sessionStorage.getItem(SEED_KEY) === String(value);",
-       "      return window.sessionStorage.getItem(SEED_KEY) !== null;"),
-    _m(RENDER, "an unstorable seed clears the stale one",
-       "        clearSeed();\n        seed = hashString", "        seed = hashString"),
-    _m(RENDER, "clearSeed really removes the key",
-       "      window.sessionStorage.removeItem(SEED_KEY);", "      void 0;"),
+       '    return readFrom("sessionStorage") === wanted || readFrom("localStorage") === wanted;',
+       "    return readSeed() !== null;"),
+    Mutation(RENDER, "seedPersisted compares the value, not mere presence",
+             '    return readFrom("sessionStorage") === wanted || readFrom("localStorage") === wanted;',
+             '    return readFrom("sessionStorage") !== null || readFrom("localStorage") !== null;',
+             survives=True,
+             why="writeSeed now removes the key from whichever store refused the "
+                 "write, so by the time this runs each store holds either THIS "
+                 "card's seed or nothing -- presence and equality coincide. The "
+                 "comparison is kept because it is what makes that reasoning local: "
+                 "it stays correct even if a removal is ever missed, which is the "
+                 "bug it was written for."),
+    _m(RENDER, "seedPersisted accepts either durable store",
+       '    return readFrom("sessionStorage") === wanted || readFrom("localStorage") === wanted;',
+       '    return readFrom("sessionStorage") === wanted;'),
+    _m(RENDER, "a refused durable write drops the stale value",
+       "        window.localStorage.removeItem(SEED_KEY);", "        void 0;"),
     _m(RENDER, "decoy dots are drawn",
        "      // Decoy dots (all markers) force the learner to follow the arrow to the\n      // right one instead of recognising a lone dot.\n      if (cfg.showDecoyDots) {",
        "      // Decoy dots (all markers) force the learner to follow the arrow to the\n      // right one instead of recognising a lone dot.\n      if (false) {"),
@@ -656,14 +729,53 @@ MUTATIONS: list[Mutation] = [
 
     # ------------------------------------------------ reviewer: front/back parity
     _m(RENDER, "the answer reuses the question's seed", "      seed = reused !== null ? parseInt(reused, 10) >>> 0 : randomUint32();", "      seed = randomUint32();"),
-    _m(RENDER, "a null stored seed falls through", "      if (stored !== null) return stored;", "      return stored;"),
+    _m(RENDER, "a null stored seed falls through",
+       '    var stored = readFrom("sessionStorage");\n    if (stored !== null) return stored;',
+       '    var stored = readFrom("sessionStorage");\n    return stored;'),
+    _m(RENDER, "the seed is read back from the durable store",
+       '    stored = readFrom("localStorage");\n    if (stored !== null) return stored;',
+       '    stored = null;'),
+    _m(RENDER, "the seed is written to the durable store",
+       "      window.localStorage.setItem(SEED_KEY, String(value));", "      void 0;"),
+    _m(RENDER, "a refused session write drops the stale value",
+       "        window.sessionStorage.removeItem(SEED_KEY);", "        void 0;"),
     _m(RENDER, "the stored seed is read back", "    return window.__roSeedFallback || null;", "    return null;"),
 
     # ------------------------------------------------- reviewer: payload/config
     _m(RENDER, "the note's config is applied", "        cfg = JSON.parse(decodeBase64Utf8(raw));", "        cfg = {};"),
     _m(RENDER, "a config value overrides the default", "        merged[key] = key in cfg ? cfg[key] : DEFAULT_CONFIG[key];", "        merged[key] = DEFAULT_CONFIG[key];"),
     _m(RENDER, "legacy bare-array payloads still render", "    if (Array.isArray(parsed)) {", "    if (false) {"),
-    _m(RENDER, "the answer is NFC-normalised before grading", '.trim().toLowerCase().replace(/\\s+/g, " ").normalize("NFC")', '.trim().toLowerCase().replace(/\\s+/g, " ")'),
+    _m(RENDER, "the answer is NFC-normalised before grading",
+       '    return s.normalize ? s.normalize("NFC") : s;', "    return s;"),
+    Mutation(RENDER, "a WebView without normalize still grades",
+             '    return s.normalize ? s.normalize("NFC") : s;',
+             '    return s.normalize("NFC");',
+             survives=True,
+             why="The guard exists for a WebView with no String.prototype.normalize. "
+                 "Node always has it, and the tests share one realm with the vm "
+                 "sandbox, so deleting it would break the harness rather than the "
+                 "card. Kept because the fallback is what stops the card throwing "
+                 "before its first paint on an old Android."),
+    _m(RENDER, "the arrowhead orients along its line",
+       '      orient: "auto",', '      orient: "auto-start-reverse",'),
+    _m(RENDER, "Enter presses the button the bar is showing",
+       "        if (!e.repeat) onButton();", "        if (!e.repeat) reveal();"),
+    _m(RENDER, "a held Enter does not grade and advance at once",
+       "        if (!e.repeat) onButton();", "        onButton();"),
+    _m(RENDER, "base64 is decoded as UTF-8, not Latin-1",
+       "    return decodeURIComponent(escape(atob(b64)));",
+       "    return atob(b64);"),
+    Mutation(RENDER, "imul falls back where the built-in is missing",
+             "    Math.imul ||", "    null ||",
+             survives=True,
+             why="Forcing the fallback changes no output, which is exactly the point: "
+                 "the polyfill agrees with Math.imul on every input the seed code "
+                 "feeds it, so the placement is identical on a WebView that lacks "
+                 "the built-in. A kill here would mean the two had diverged."),
+    _m(RENDER, "hypot2 is a real hypotenuse",
+       "    return Math.sqrt(dx * dx + dy * dy);", "    return dx + dy;"),
+    _m(RENDER, "keyName reads the event key",
+       "    if (e.key) return e.key;", "    if (false) return e.key;"),
     _m(RENDER, "an orphaned card falls back to the first structure",
        "    if (activeIndex < 0) activeIndex = 0;", ""),
     _m(RENDER, "the active ordinal is looked up, not subtracted from",
@@ -702,6 +814,34 @@ MUTATIONS: list[Mutation] = [
     _m(CLIPBOARD, "an empty clipboard yields nothing",
        "    if bitmap is not None:\n        return PasteChoice(bitmap=bitmap)\n    return None",
        "    return PasteChoice(bitmap=bitmap)"),
+
+    # ------------------------------------------------- reviewer key override
+    _m(SHORTCUTS, "only the question side is intercepted",
+       '    if main_state != "review" or reviewer_state != "question":',
+       '    if main_state != "review":'),
+    _m(SHORTCUTS, "only the reviewer state is intercepted",
+       '    if main_state != "review" or reviewer_state != "question":',
+       '    if reviewer_state != "question":'),
+    _m(SHORTCUTS, "only our own note type is intercepted",
+       "    if not notetype_name or notetype_name != our_notetype_name:",
+       "    if False:"),
+    _m(SHORTCUTS, "only single-card mode is intercepted",
+       "    return single_card_mode", "    return True"),
+    _m(SHORTCUTS, "only the review state gets new bindings",
+       '        if state != "review":\n            return',
+       "        if False:\n            return"),
+    _m(SHORTCUTS, "the keys are appended, not substituted",
+       "        shortcuts.extend((key, handler) for key in _KEYS)",
+       "        shortcuts[:] = [(key, handler) for key in _KEYS]"),
+    _m(SHORTCUTS, "a key we do not want falls through to Anki",
+       "        if not intercept:\n            mw.reviewer.onEnterKey()",
+       "        if False:\n            mw.reviewer.onEnterKey()"),
+    _m(SHORTCUTS, "an intercepted key does not also flip the card",
+       "            mw.reviewer.onEnterKey()\n            return",
+       "            mw.reviewer.onEnterKey()"),
+    _m(SHORTCUTS, "a broken note falls through rather than raising",
+       "        except Exception:\n            intercept = False",
+       "        except Exception:\n            raise"),
 
     # ----------------------------------------------------------------- config
     _m(CONFIG, "zoom clamp range", "return max(MIN_EDITOR_ZOOM, min(MAX_EDITOR_ZOOM, value))", "return value"),

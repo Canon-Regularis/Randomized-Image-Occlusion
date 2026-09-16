@@ -335,6 +335,11 @@ function buildCard(opts) {
   // it each card gets its own, which cannot express a value written by one page
   // and read by the next.
   const store = o.store || {};
+  // localStorage is a SEPARATE backing object, shared per origin rather than per
+  // browsing context. Passing `localStore` is how a test models the case the
+  // session store cannot reach: an answer side that opens in a brand-new web
+  // view, where sessionStorage is empty and the in-memory mirror is gone.
+  const localStore = o.localStore || {};
   let seededFallback;
   if (o.seed !== undefined) {
     // "unavailable" cannot hand a seed back at all, so a pre-set seed is modelled
@@ -467,6 +472,23 @@ function buildCard(opts) {
         delete store[k];
       },
     },
+    // `localStorage` follows its own switch, because the two are not degraded
+    // together in practice: a private window can refuse one and serve the other.
+    localStorage: {
+      getItem: (k) => {
+        if (o.localStorage === "unavailable") throw new Error("storage disabled");
+        return Object.prototype.hasOwnProperty.call(localStore, k) ? localStore[k] : null;
+      },
+      setItem: (k, v) => {
+        if (o.localStorage === "unavailable") throw new Error("storage disabled");
+        if (o.localStorage === "quota") throw new Error("quota exceeded");
+        localStore[k] = String(v);
+      },
+      removeItem: (k) => {
+        if (o.localStorage === "unavailable") throw new Error("storage disabled");
+        delete localStore[k];
+      },
+    },
   };
 
   const sandbox = {
@@ -484,6 +506,7 @@ function buildCard(opts) {
     svg,
     ids,
     store,
+    localStore,
     typeBox,
     internals: api._internals,
     render: (mint) => api.render(mint),

@@ -25,15 +25,19 @@ const ALL = [
 const SEED = 20240607;
 
 /** Open a single-mode card's front and hand back the cycler's pieces. */
-function openCycler(structures, direction, interaction, seed, config) {
-  const card = buildCard({
+function openCycler(structures, direction, interaction, seed, config, stage) {
+  // `stage` is omitted rather than passed as undefined: buildCard merges with
+  // Object.assign, so an explicit undefined would wipe out its default.
+  const options = {
     structures,
     mode: "single",
     direction,
     interaction,
     seed,
     config: Object.assign({ showDecoyDots: true }, config),
-  });
+  };
+  if (stage) options.stage = stage;
+  const card = buildCard(options);
   card.render(false);
   const bar = card.ids.get("ro-cycler");
   assert.ok(bar, "render() must build the cycler bar on a single-card front");
@@ -272,6 +276,45 @@ test("pressing Enter in the input grades the answer instead of flipping the card
   assert.match(c.feedback.textContent, /Correct/, "Enter submits the answer");
 });
 
+test("Enter finishes the whole cycle from the keyboard", () => {
+  // Enter used to call reveal() directly, so once the answer was showing it did
+  // nothing at all -- and the Next button is tabindex="-1", so a keyboard-only
+  // learner could not advance past the first marker.
+  const c = openCycler(ALL, "forward", "type", SEED);
+  const press = () =>
+    c.input.dispatch("keydown", {
+      key: "Enter",
+      preventDefault() {},
+      stopPropagation() {},
+    });
+
+  for (let step = 0; step < ALL.length; step++) {
+    c.input.value = ALL[c.order[step]].label;
+    press(); // grade
+    assert.match(c.feedback.textContent, /Correct/, `step ${step + 1}: not graded`);
+    press(); // advance
+  }
+  assert.equal(c.progress.textContent, `${ALL.length} / ${ALL.length} ✓`,
+    "Enter never carried the cycle to the end");
+  assert.match(c.button.textContent, /^Done/,
+    "the bar is not in its finished state");
+});
+
+test("a held Enter does not grade and advance in one go", () => {
+  // One key doing both means auto-repeat scrolls the "Answer: ..." feedback
+  // past before it can be read.
+  const c = openCycler(ALL, "forward", "type", SEED);
+  c.input.value = ALL[c.order[0]].label;
+  c.input.dispatch("keydown", { key: "Enter", preventDefault() {}, stopPropagation() {} });
+  const after = c.progress.textContent;
+
+  c.input.dispatch("keydown", {
+    key: "Enter", repeat: true, preventDefault() {}, stopPropagation() {},
+  });
+  assert.equal(c.progress.textContent, after,
+    "an auto-repeated Enter advanced past the feedback");
+});
+
 test("backward markers never ask you to type, whatever the interaction", () => {
   // reverse = "locate it": there is nothing to type, so the input stays hidden.
   for (const interaction of ["type", "reveal"]) {
@@ -321,6 +364,49 @@ test("the single-card answer key honours the target-dot setting", () => {
     assert.equal(dotsOf(back.svg).length, showTargetDot ? ALL.length : 0,
       `the answer key drew ${dotsOf(back.svg).length} dots with the setting ` +
       `${showTargetDot ? "on" : "off"}`);
+  }
+});
+
+const LONG_PROMPT = "which structure is marked here, exactly?";
+
+//: Long enough to wrap, on a stage small enough that the room beside a box is
+//: narrower than the stage: only then does the wrap WIDTH -- the one thing
+//: `flips` decides -- change the box at all.
+const WORDY = [
+  { ord: 1, x: 0.2, y: 0.3, label: "Posterior inferior cerebellar artery" },
+  { ord: 2, x: 0.6, y: 0.7, label: "Superior mesenteric arterial trunk" },
+  { ord: 3, x: 0.8, y: 0.2, label: "Left anterior descending branch" },
+];
+const SMALL = { width: 320, height: 240 };
+
+test("the answer key reproduces the boxes the cycle drew", () => {
+  // Only a FORWARD position ever shows the prompt, so only that one wraps to
+  // the prompt's width. Wrapping them all (or none) made the same marker a
+  // different shape during the cycle and on the answer key, so it visibly
+  // changed size when the card was flipped. A one-character prompt hides this
+  // completely, which is why every existing test missed it.
+  const config = { showDecoyDots: true, showTargetDot: true, promptText: LONG_PROMPT };
+  const c = openCycler(WORDY, "both", "reveal", SEED, config, SMALL);
+  for (let step = 0; step < WORDY.length; step++) {
+    c.button.dispatch("click"); // reveal
+    c.button.dispatch("click"); // next
+  }
+  const front = new Map(boxesOf(c.card.svg).map((b) => [b.text, b]));
+  assert.equal(front.size, WORDY.length, "the cycle did not finish");
+
+  const back = buildCard({
+    structures: WORDY, mode: "single", direction: "both",
+    interaction: "reveal", seed: SEED, back: true, stage: SMALL, config,
+  });
+  back.render(false);
+
+  for (const b of boxesOf(back.svg)) {
+    const f = front.get(b.text);
+    assert.ok(f, `the answer key is missing ${b.text}`);
+    assert.ok(
+      Math.abs(f.w - b.w) < 1e-6 && Math.abs(f.h - b.h) < 1e-6,
+      `${b.text}: ${f.w}x${f.h} during the cycle, ${b.w}x${b.h} on the back`,
+    );
   }
 });
 
