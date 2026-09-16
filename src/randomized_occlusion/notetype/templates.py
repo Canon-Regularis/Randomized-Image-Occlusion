@@ -121,6 +121,11 @@ __RO_VARIABLES__
   margin: 14px auto 0; max-width: 42em; padding-top: 10px;
   border-top: 1px solid var(--ro-panel-border);
   text-align: left; font-size: 0.9em; line-height: 1.5;
+  /* The dialog's box is a QPlainTextEdit, so what it stores are literal
+     newlines. Without this they collapse and a paragraphed note renders as one
+     run-on line. It costs nothing for a field written through Anki's own
+     editor, whose <br>/<div> markup already breaks where it means to. */
+  white-space: pre-wrap;
 }
 /* Native type-in box (multi mode). */
 .ro-type { margin-top: 14px; line-height: normal; }

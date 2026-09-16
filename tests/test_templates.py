@@ -65,8 +65,20 @@ def test_assembled_output_is_byte_stable():
     assert digests == {
         "front": "61f1f358b5f8a5f1b900a8bb925141076400f6427eedfb8cb3a6ef6539ab56de",
         "back": "009560c81cbebce3683552e7c9db44d35d312ffd792e31849c0dbb851fc2d84d",
-        "css": "1b0bf548e5a8b2ab05e1838f569d9df0b3d58ddfc1f547c3e97cfe5f1a7d5ef3",
+        "css": "935081fef9b92c866db2b8a4b01a77d04c5e45e3d748632135d7c940304fda43",
     }
+
+
+def test_the_extra_block_keeps_the_line_breaks_it_was_given():
+    # "Back extra" is a multi-line QPlainTextEdit, so what it stores are literal
+    # newlines. Without this rule they collapse and a note with paragraphs
+    # renders as a single run-on line on the answer side.
+    css = _assembler().css(RC)
+    block = re.search(r"\.ro-extra\s*\{(.*?)\}", css, flags=re.DOTALL)
+    assert block, "the .ro-extra rule is gone"
+    assert "white-space: pre-wrap" in block.group(1), (
+        "the rule that preserves the stored newlines is not in .ro-extra"
+    )
 
 
 def test_bundled_render_js_has_no_double_brace_tokens():
