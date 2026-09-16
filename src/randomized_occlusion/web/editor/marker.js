@@ -17,6 +17,9 @@
  *               pycmd("ro:zoom:<z>")         throttled, whenever zoom changes
  *               pycmd("ro:textfocus:<0|1>")  when a label field gains/loses focus,
  *                                            so Ctrl+V can mean "paste text" there
+ *               pycmd("ro:broken:<0|1>")     when the image starts or stops being
+ *                                            unloadable, so a paste over labels can
+ *                                            be confirmed rather than silent
  *   Py  -> JS : ROEditor.setImage(dataUrl, markers?)
  *                                            show an image; markers (optional,
  *                                            [{x, y, label}, ...]) pre-populate
