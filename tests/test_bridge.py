@@ -9,6 +9,7 @@ class Spy:
         self.counts = []
         self.zooms = []
         self.text_focus = []
+        self.broken = []
 
     def on_ready(self):
         self.ready += 1
@@ -22,6 +23,9 @@ class Spy:
     def on_text_focus(self, focused):
         self.text_focus.append(focused)
 
+    def on_broken(self, broken):
+        self.broken.append(broken)
+
 
 def _bridge(spy):
     return MarkerBridge(
@@ -29,6 +33,7 @@ def _bridge(spy):
         on_count=spy.on_count,
         on_zoom=spy.on_zoom,
         on_text_focus=spy.on_text_focus,
+        on_broken=spy.on_broken,
     )
 
 
@@ -94,3 +99,15 @@ def test_foreign_messages_are_ignored():
     bridge.handle("ro:unknown:1")
     assert spy.ready == 0
     assert spy.counts == [] and spy.zooms == [] and spy.text_focus == []
+
+
+def test_broken_image_message_is_routed():
+    # Its own message rather than a marker count of zero: the count also decides
+    # whether replacing the image asks "the N markers you have placed will be
+    # removed", and reporting zero disarmed that confirmation entirely.
+    spy = Spy()
+    bridge = _bridge(spy)
+    bridge.handle("ro:broken:1")
+    bridge.handle("ro:broken:0")
+    assert spy.broken == [True, False]
+    assert spy.counts == [], "brokenness must not be reported as a marker count"

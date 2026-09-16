@@ -156,7 +156,37 @@ function buildEditor(opts) {
       node._focused = true;
       fireDocument("focusin", { target: node });
     };
+    // Clearing a container destroys whatever had focus inside it, and a real
+    // DOM hands focus back to the body synchronously when that happens -- no
+    // blur event is fired, which is precisely why the editor has to re-check
+    // after a re-render. Leaving a detached node as activeElement made the
+    // mock answer "a text field still has focus" for ever.
+    const setInnerHtml = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(node) || node,
+      "innerHTML",
+    );
+    Object.defineProperty(node, "innerHTML", {
+      configurable: true,
+      set(html) {
+        if (containsNode(node, documentObj.activeElement)) {
+          documentObj.activeElement = null;
+        }
+        if (setInnerHtml && setInnerHtml.set) setInnerHtml.set.call(node, html);
+        else node.childNodes = [];
+      },
+      get() {
+        return "";
+      },
+    });
     return node;
+  }
+
+  /** Is `candidate` inside `root` (a real DOM `contains`, minus the self case)? */
+  function containsNode(root, candidate) {
+    for (let n = candidate; n; n = n.parentNode) {
+      if (n === root) return true;
+    }
+    return false;
   }
 
   // ---- the tree, mirroring marker.html --------------------------------------
@@ -391,6 +421,11 @@ function buildEditor(opts) {
       }
       loaded = true;
       if (typeof img.onload === "function") img.onload();
+    },
+    /** Fail the image load, as an undecodable or truncated file does. */
+    failLoad() {
+      loaded = false;
+      if (typeof img.onerror === "function") img.onerror();
     },
     /**
      * Flush every pending setTimeout (the zoom-report throttle, rAF fallback)

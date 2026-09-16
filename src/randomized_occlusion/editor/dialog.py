@@ -122,6 +122,12 @@ def _existing_ordinal(value: Any) -> int | None:
 
 
 class MarkerDialog(QDialog):
+    #: Anki's shutdown path (`_checkForUnclosedWidgets`) only calls `close()` on
+    #: windows that advertise this; without it, quitting with the editor open
+    #: skipped `_on_finished` entirely, so the pasted-image scratch directory was
+    #: never reclaimed and the zoom level was never written back.
+    silentlyClose = True
+
     def __init__(
         self,
         main_window: Any,
@@ -149,6 +155,11 @@ class MarkerDialog(QDialog):
         )
         self._deck_combo: QComboBox | None = None
         self._web_ready = False
+        #: The canvas cannot display the chosen image. Save stays off until a
+        #: usable one arrives; the marker count is left alone, because the
+        #: markers are still the note's data and still worth confirming before
+        #: a replacement throws them away.
+        self._image_broken = False
         # Held from the moment a Save is committed until the async persist op
         # resolves, so a second Save press can't queue a duplicate note.
         self._saving = False
@@ -168,6 +179,7 @@ class MarkerDialog(QDialog):
             on_count=self._on_count,
             on_zoom=self._on_zoom,
             on_text_focus=self._on_text_focus,
+            on_broken=self._on_broken,
         )
 
         self.setWindowTitle(saver.title())
@@ -368,12 +380,27 @@ class MarkerDialog(QDialog):
     def _populate_decks(self) -> None:
         if self._deck_combo is None:
             return
-        names = sorted(d.name for d in self._mw.col.decks.all_names_and_ids())
+        # Filtered (dyn) decks cannot receive new cards: Anki's card generator
+        # redirects them to Default, so picking one here silently sent the note
+        # somewhere the user never chose. Anki's own add-target picker excludes
+        # them for the same reason (aqt/studydeck.py passes include_filtered=dyn,
+        # and DeckChooser resets a dyn deck to DEFAULT_DECK_ID).
+        names = sorted(
+            d.name for d in self._mw.col.decks.all_names_and_ids(include_filtered=False)
+        )
         self._deck_combo.addItems(names)
         current = self._config.deck()
         index = self._deck_combo.findText(current)
         if index >= 0:
             self._deck_combo.setCurrentIndex(index)
+        elif names:
+            # The remembered deck is gone, or has since been turned into a
+            # filtered one. Select something real so the combo and the deck the
+            # cards go to agree. The config is NOT rewritten here: opening a
+            # dialog and cancelling must not lose the remembered deck, which
+            # may simply be in another profile or a filtered deck the user is
+            # about to empty. The saver writes it when a note is actually saved.
+            self._deck_combo.setCurrentIndex(0)
 
     def _load_page(self) -> None:
         # The accent is a validated CSS colour (see RenderConfig._as_color), so
@@ -390,6 +417,10 @@ class MarkerDialog(QDialog):
         self.web.stdHtml(body)
 
     # -- bridge callbacks ------------------------------------------------------
+
+    def _on_broken(self, broken: bool) -> None:
+        self._image_broken = broken
+        self._update_save_enabled()
 
     def _on_web_ready(self) -> None:
         # Every bridge callback below guards on _closed, the way _on_markers,
@@ -803,8 +834,13 @@ class MarkerDialog(QDialog):
         # which is why this precedes the `_closed` bail below.
         self._scratch.discard()
         if self._closed:
-            # The user cancelled after the save op had already committed; the note
-            # exists, but the dialog is gone; don't accept()/touch dead widgets.
+            # The user cancelled after the save op had already committed, so the
+            # note exists whatever the Cancel press suggested. Say so -- silence
+            # here reads as "nothing was saved" and invites a duplicate. The
+            # tooltip is parented to the main window, which outlives this dialog;
+            # only accept() has to stay behind the guard, because the dialog and
+            # its children are gone.
+            tooltip(message, parent=self._mw)
             return
         # Parented to the main window: the next line accepts, which destroys
         # this dialog and its children on the next event-loop turn, and the
@@ -839,8 +875,19 @@ class MarkerDialog(QDialog):
         if save is not None:
             # Never re-enable Save while a persist op is in flight (`_saving`),
             # so a second press can't queue a duplicate note.
+            #
+            # `_web_ready` matters on the edit path: until the canvas has
+            # announced itself, `_marker_count` is the prefill's claim rather
+            # than the canvas's state, and getMarkers() would read the still-empty
+            # array -- so an early Save reported "Add at least one marker before
+            # saving" on a note that plainly has markers. setImage()'s
+            # notifyCount() re-enables it a moment later.
             save.setEnabled(
-                not self._saving and self._has_image() and self._marker_count > 0
+                not self._saving
+                and self._web_ready
+                and self._has_image()
+                and not self._image_broken
+                and self._marker_count > 0
             )
 
     def _on_finished(self, _result: int) -> None:

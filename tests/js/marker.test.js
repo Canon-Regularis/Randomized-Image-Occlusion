@@ -63,6 +63,41 @@ test("a junk ordinal is treated as a new marker, not as someone else's card", ()
   assert.deepEqual(ords, [null, null, null, 2], "a junk ordinal was trusted");
 });
 
+test("an image the webview cannot decode says so instead of going quiet", () => {
+  // setImage() hides the empty-state hint before the image has loaded, so a
+  // file the engine rejects left a blank stage that looked ready and did
+  // nothing for ever after: no error, no hint, and Save still enabled.
+  const h = buildEditor();
+  h.api.setImage(PNG, [
+    { x: 0.2, y: 0.3, label: "Aorta" },
+    { x: 0.6, y: 0.7, label: "Vena cava" },
+  ]);
+  h.failLoad();
+
+  const empty = h.document.getElementById("ed-empty");
+  assert.notEqual(empty.style.display, "none", "the empty-state hint stayed hidden");
+  assert.match(empty.textContent, /could not be displayed/i);
+  assert.equal(h.els.img.style.display, "none", "the broken image is still shown");
+  // Brokenness gets its own message. Reporting it as "zero markers" would also
+  // disarm the confirmation that asks before a replacement discards them.
+  assert.equal(h.sent.filter((m) => m.startsWith("ro:broken:")).pop(), "ro:broken:1");
+  assert.equal(h.sent.filter((m) => m.startsWith("ro:count:")).pop(), "ro:count:2",
+    "a broken image was reported as having no markers");
+  assert.equal(h.api.getMarkers().length, 2, "the marker rows were thrown away");
+});
+
+test("a working image after a failed one re-enables saving", () => {
+  const h = buildEditor();
+  h.api.setImage(PNG, [{ x: 0.2, y: 0.3, label: "Aorta" }]);
+  h.failLoad();
+  assert.equal(h.sent.filter((m) => m.startsWith("ro:broken:")).pop(), "ro:broken:1");
+
+  h.api.setImage(PNG, [{ x: 0.2, y: 0.3, label: "Aorta" }]);
+  h.load();
+  assert.equal(h.sent.filter((m) => m.startsWith("ro:broken:")).pop(), "ro:broken:0",
+    "the broken-image latch outlived the image that broke");
+});
+
 /** Where a client point falls on the image, normalized 0..1. */
 function norm(h, x, y) {
   const r = h.els.img.getBoundingClientRect();
@@ -698,6 +733,49 @@ test("focus transitions emit ro:textfocus", () => {
     h.sent.filter((m) => m.startsWith("ro:textfocus:")),
     ["ro:textfocus:0"],
   );
+});
+
+test("destroying the focused label row reports the focus it took with it", () => {
+  // Deleting a marker clears the list, which destroys whichever label field had
+  // focus -- and a destroyed input never fires blur. The flag stuck at "a text
+  // field is focused", so Python kept its window-wide Ctrl+V stood down and
+  // pasting an image was dead for the rest of the session.
+  const h = loaded();
+  const p = h.pointAt(0.5, 0.5);
+  h.clickImage(p.x, p.y); // focus lands in the new label field
+  h.runTimers();
+  assert.deepEqual(
+    h.sent.filter((m) => m.startsWith("ro:textfocus:")).slice(-1),
+    ["ro:textfocus:1"],
+  );
+
+  h.sent.length = 0;
+  h.els.list.childNodes[0].childNodes
+    .find((c) => c._classes.has("ed-row-del"))
+    .dispatch("click");
+  h.runTimers();
+
+  assert.deepEqual(
+    h.sent.filter((m) => m.startsWith("ro:textfocus:")),
+    ["ro:textfocus:0"],
+    "the focus flag outlived the input it described",
+  );
+});
+
+test("Space presses a focused button instead of arming pan", () => {
+  // Space is how a keyboard user activates a button. The window-level handler
+  // swallowed it before the button ever saw it, so tabbing to zoom-in or a
+  // row's delete button and pressing Space silently did nothing.
+  const h = loaded();
+  const button = h.document.getElementById("ed-zoom-in");
+  button.focus();
+
+  let prevented = false;
+  h.key(" ", { preventDefault: () => { prevented = true; } });
+
+  assert.equal(prevented, false, "Space was swallowed before the button saw it");
+  assert.equal(h.els.stage._classes.has("ed-pan-ready"), false,
+    "Space on a button armed pan instead of pressing the button");
 });
 
 test("focus changes within text fields are not reported", () => {

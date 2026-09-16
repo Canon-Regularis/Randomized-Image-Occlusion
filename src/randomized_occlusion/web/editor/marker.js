@@ -69,6 +69,11 @@ window.ROEditor = (function () {
   // Whether a label field currently has focus. Reported to Python so its
   // window-wide Ctrl+V can step aside and let the field paste text instead.
   var textFocused = false;
+  //: Set when the <img> reports an error. The markers are deliberately KEPT --
+  //: on the Browser edit path they are the only surviving record of the note --
+  //: but nothing can be saved without a picture to attach them to, so the count
+  //: the dialog grades Save on is reported as zero until a good image arrives.
+  var imageBroken = false;
   // The zoom currently written into the DOM, which is what the image's measured
   // rect reflects. setPan runs after `zoom` has been updated but before the new
   // transform is applied, so it needs the old one to recover the layout size.
@@ -87,6 +92,18 @@ window.ROEditor = (function () {
 
   function notifyCount() {
     send("ro:count:" + markers.length);
+  }
+
+  /**
+   * Whether the stage is showing a usable picture.
+   *
+   * Its own message, because reporting a broken image as "zero markers" was a
+   * lie with a second victim: replace_image_prompt() asks "the N markers you
+   * have placed will be removed" only when N > 0, so a zero disarmed the one
+   * confirmation standing between a stray Ctrl+V and the loss of every label.
+   */
+  function notifyBroken() {
+    send("ro:broken:" + (imageBroken ? "1" : "0"));
   }
 
   // ---- pure geometry (exported on _internals for tests) ---------------------
@@ -413,6 +430,11 @@ window.ROEditor = (function () {
     var list = el("ed-list");
     if (!list) return;
     list.innerHTML = "";
+    // Clearing the list destroys whichever label input had focus, and a
+    // destroyed input never fires blur. Without this the flag stuck at "a text
+    // field is focused" and Ctrl+V image paste stayed disabled for the rest of
+    // the session.
+    reportTextFocus();
     if (!markers.length) {
       var placeholder = document.createElement("div");
       placeholder.className = "ed-empty-row";
@@ -720,6 +742,10 @@ window.ROEditor = (function () {
     return node.tagName === "INPUT" || node.tagName === "TEXTAREA";
   }
 
+  function isButton(node) {
+    return !!node && node.tagName === "BUTTON";
+  }
+
   function onKeyDown(event) {
     // Mid-composition an IME owns every key.
     if (event.isComposing) return;
@@ -747,7 +773,11 @@ window.ROEditor = (function () {
       return;
     }
     if (key === " " || key === "Spacebar") {
-      event.preventDefault(); // Space would otherwise scroll or re-press a button
+      // Space is how a keyboard user presses a focused button. Swallowing it
+      // here meant tabbing to zoom-in or a row's delete button and pressing
+      // Space did nothing at all -- it armed pan-ready instead.
+      if (isButton(document.activeElement)) return;
+      event.preventDefault(); // Space would otherwise scroll the panel
       if (!spaceHeld) {
         spaceHeld = true;
         setStageClass("ed-pan-ready", true);
@@ -879,12 +909,34 @@ window.ROEditor = (function () {
 
     // Editing re-opens a note with its existing markers; creating passes none.
     markers = normalizeMarkers(initialMarkers);
+    imageBroken = false;
     if (empty) empty.style.display = "none";
     img.onload = function () {
+      img.onerror = null;
       // Only now is the laid-out size known, so this is where the view can be
       // centred and the pan clamped against real dimensions.
       centrePan();
       render();
+    };
+    // A file the webview cannot decode -- a truncated download, a .png that is
+    // really something else, an SVG the engine rejects -- used to leave the
+    // canvas blank and inert with the empty-state hint already hidden, so the
+    // dialog looked ready and simply did nothing for ever after.
+    img.onerror = function () {
+      img.onload = null;
+      img.onerror = null;
+      imageBroken = true;
+      img.style.display = "none";
+      if (empty) {
+        empty.textContent =
+          "That image could not be displayed. Choose or paste another one.";
+        empty.style.display = "";
+      }
+      // Keeps the marker rows (the note's data) while clearing the overlay,
+      // because renderOverlay() bails after it has cleared.
+      render();
+      notifyCount();
+      notifyBroken();
     };
     img.style.display = "block";
     img.src = dataUrl;
@@ -893,6 +945,7 @@ window.ROEditor = (function () {
     applyTransform();
     renderList();
     notifyCount();
+    notifyBroken();
   }
 
   function getMarkers() {
