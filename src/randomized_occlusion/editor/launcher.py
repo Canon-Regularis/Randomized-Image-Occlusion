@@ -19,6 +19,10 @@ class EditorLauncher:
         self._config = config_service
         self._host = ModelessDialogHost()
 
+    def close_open(self, *_args: Any) -> None:
+        """Close the editor if one is open (profile switch, shutdown)."""
+        self._host.close_open()
+
     def open(self, *_args: Any) -> None:
         # *_args absorbs the bool QAction.triggered emits, so this works whether
         # or not PyQt truncates the signal's argument.

@@ -62,5 +62,29 @@ class ModelessDialogHost:
         dialog.show()
         return True
 
+    def close_open(self, *_args: Any) -> None:
+        """Close the open dialog, if any. Never raises.
+
+        Anki's shutdown walks `aqt.dialogs`, which only knows the windows it
+        registered, so this dialog was invisible to it: a profile switch closed
+        the collection and left the editor on screen. `CollectionOp` resolves
+        `mw.col` when the op RUNS, so a Save pressed afterwards wrote the note,
+        the image and a freshly created deck into whichever profile had since
+        been loaded -- and reported "Added N cards", so the user had no reason
+        to doubt where it went.
+
+        Closing is enough: `MarkerDialog.silentlyClose` lets `close()` run the
+        normal reject path, which fires `finished` and so reaches `_release`
+        and the dialog's own teardown.
+        """
+        dialog = self._dialog
+        if dialog is None:
+            return
+        with contextlib.suppress(Exception):
+            dialog.close()
+        # Drop the reference even if close() refused, so a stale window can
+        # never keep the next Tools-menu click from opening a fresh one.
+        self._dialog = None
+
     def _release(self, *_args: Any) -> None:
         self._dialog = None

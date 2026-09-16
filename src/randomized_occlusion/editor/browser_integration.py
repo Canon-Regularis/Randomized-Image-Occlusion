@@ -42,6 +42,10 @@ class BrowserEditIntegration:
         self._spec = spec
         self._host = ModelessDialogHost()
 
+    def close_open(self, *_args: Any) -> None:
+        """Close the editor if one is open (profile switch, shutdown)."""
+        self._host.close_open()
+
     def register(self) -> None:
         gui_hooks.browser_will_show_context_menu.append(self._on_context_menu)
 
