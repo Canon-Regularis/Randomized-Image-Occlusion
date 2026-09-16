@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
 from randomized_occlusion.config.render_config import RenderConfig
 from randomized_occlusion.notetype.installer import InstallResult, NoteTypeInstaller
 from randomized_occlusion.notetype.spec import DEFAULT_SPEC
-from randomized_occlusion.notetype.templates import TemplateAssembler
+from randomized_occlusion.notetype.templates import (
+    TemplateAssembler,
+    extract_fingerprint,
+)
 
 
 class FakeModelGateway:
@@ -82,9 +89,9 @@ class FakeModelGateway:
         return changed
 
 
-def _installer(gateway):
-    assembler = TemplateAssembler(DEFAULT_SPEC, "/* render */")
-    return NoteTypeInstaller(gateway, assembler, DEFAULT_SPEC)
+def _installer(gateway, spec=DEFAULT_SPEC):
+    assembler = TemplateAssembler(spec, "/* render */")
+    return NoteTypeInstaller(gateway, assembler, spec)
 
 
 def _rc(**overrides):
@@ -233,49 +240,49 @@ def test_update_does_not_swap_front_and_back():
     assert gateway.update_calls[-1]["back"] == template.back
 
 
-def _uncollapsed_field_after_the_sort_field() -> str:
-    """A field whose removal leaves every other term of the update test alone.
+def _spec_with_a_droppable_field():
+    """A spec carrying one field the installer may legitimately append back.
 
-    It must not be collapsed (or collapse_fields would flip to True when it is
-    re-added without the flag) and it must sit after the sort field (or removing
-    it would shift sortf and set sort_changed). What is left can only be
-    fields_changed.
+    The field whose removal leaves fields_changed as the ONLY term must not be
+    collapsed (or collapse_fields flips too when it is re-added without the
+    flag) and must sit after the sort field (or sortf shifts). Every field
+    DEFAULT_SPEC declares now fails one of those or is required -- and a missing
+    required field is a rename, which the installer refuses outright. So the
+    test gets a field of its own rather than a weaker assertion.
     """
-    fields = DEFAULT_SPEC.fields
-    after = fields[fields.index(DEFAULT_SPEC.sort_field) + 1:]
-    candidates = [f for f in after if f not in DEFAULT_SPEC.collapsed_fields]
-    assert candidates, "the spec no longer has a field this test can use"
-    return candidates[0]
+    return replace(DEFAULT_SPEC, fields=(*DEFAULT_SPEC.fields, "Scratch"))
 
 
 def test_missing_field_alone_forces_an_update():
+    spec = _spec_with_a_droppable_field()
     gateway = FakeModelGateway()
-    _installer(gateway).ensure_installed(_rc())
-    notetype = gateway.store[DEFAULT_SPEC.name]
-    dropped = _uncollapsed_field_after_the_sort_field()
+    _installer(gateway, spec).ensure_installed(_rc())
+    notetype = gateway.store[spec.name]
     before = notetype["sortf"]
-    notetype["flds"] = [f for f in notetype["flds"] if f["name"] != dropped]
+    notetype["flds"] = [f for f in notetype["flds"] if f["name"] != "Scratch"]
 
-    result = _installer(gateway).ensure_installed(_rc())
+    result = _installer(gateway, spec).ensure_installed(_rc())
 
     assert result is InstallResult.UPDATED
-    assert [f["name"] for f in notetype["flds"]].count(dropped) == 1
+    assert [f["name"] for f in notetype["flds"]].count("Scratch") == 1
     assert notetype["sortf"] == before, (
         "this field was chosen so sortf cannot move; if it did, sort_changed "
         "would mask a broken fields_changed term"
     )
 
 
-def test_a_removed_sort_field_keeps_the_sort_column():
-    # ensure_fields appends, so the sort field comes back at the END of the list.
-    # An untouched sortf would still point at the index it used to occupy, and
-    # the browser would sort on whatever moved into that slot.
+def test_a_repositioned_sort_field_keeps_the_sort_column():
+    # Anki lets a user reposition fields, which moves the sort field without
+    # moving sortf. The browser then sorts on whatever slid into that slot, with
+    # nothing on screen to say so.
     gateway = FakeModelGateway()
     _installer(gateway).ensure_installed(_rc())
     notetype = gateway.store[DEFAULT_SPEC.name]
-    notetype["flds"] = [
-        f for f in notetype["flds"] if f["name"] != DEFAULT_SPEC.sort_field
-    ]
+    moved = [f for f in notetype["flds"] if f["name"] != DEFAULT_SPEC.sort_field]
+    moved.append(next(
+        f for f in notetype["flds"] if f["name"] == DEFAULT_SPEC.sort_field
+    ))
+    notetype["flds"] = moved
 
     result = _installer(gateway).ensure_installed(_rc())
 
@@ -283,7 +290,7 @@ def test_a_removed_sort_field_keeps_the_sort_column():
     assert [f["name"] for f in notetype["flds"]].count(DEFAULT_SPEC.sort_field) == 1
     assert notetype["flds"][notetype["sortf"]]["name"] == DEFAULT_SPEC.sort_field
     assert notetype["sortf"] != DEFAULT_SPEC.sort_index, (
-        "the field was re-appended, so its index is no longer the declared one; "
+        "the field moved, so its index is no longer the declared one; "
         "if these matched, the test would not distinguish a name lookup from "
         "blindly restoring spec.sort_index"
     )
@@ -312,3 +319,168 @@ def test_a_correct_sort_index_is_not_an_update():
     _installer(gateway).ensure_installed(_rc())
 
     assert _installer(gateway).ensure_installed(_rc()) is InstallResult.UNCHANGED
+
+
+def _edit_the_back(notetype):
+    """Stand in for a user editing the Back template in Card Types."""
+    notetype["tmpls"][0]["afmt"] += "<div class=mine>hand edited</div>"
+
+
+def _edit_all_three(notetype):
+    """A user who edited the front, the back and the styling."""
+    notetype["tmpls"][0]["qfmt"] += "<div class=mine>front</div>"
+    notetype["tmpls"][0]["afmt"] += "<div class=mine>back</div>"
+    notetype["css"] += ".mine { color: red; }"
+
+
+def test_a_hand_edited_template_survives_an_upgrade():
+    # The whole point: an upgrade that WOULD rewrite the templates (the config
+    # changed, so the fingerprint no longer matches) must not take the user's
+    # edit with it. Before this guard, ensure_installed clobbered it silently.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    _edit_the_back(notetype)
+    gw.update_calls.clear()
+
+    result = _installer(gw).ensure_installed(_rc(accent_color="#000000"))
+
+    assert result is InstallResult.CUSTOMISED
+    assert gw.update_calls == [], "nothing may be written back"
+    assert "hand edited" in notetype["tmpls"][0]["afmt"]
+    assert "--ro-accent: #000000;" not in notetype["css"]
+
+
+def test_hand_edited_css_survives_an_upgrade():
+    # The CSS carries the fingerprint, so it is the one string whose edit could
+    # plausibly be mistaken for our own write. It is hashed without the marker
+    # line, so an edit anywhere else in it still registers.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    notetype["css"] += ".mine { color: red; }"
+
+    result = _installer(gw).ensure_installed(_rc(accent_color="#000000"))
+
+    assert result is InstallResult.CUSTOMISED
+    assert ".mine { color: red; }" in notetype["css"]
+
+
+def test_an_untouched_notetype_is_still_upgraded():
+    # The guard must not freeze every install. Nobody edited this one, so the
+    # new templates land exactly as they did before the guard existed.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+
+    result = _installer(gw).ensure_installed(_rc(accent_color="#000000"))
+
+    assert result is InstallResult.UPDATED
+    assert "--ro-accent: #000000;" in gw.store[DEFAULT_SPEC.name]["css"]
+
+
+def test_a_notetype_with_no_fingerprint_is_still_upgraded():
+    # An install predating the marker, or one whose CSS was replaced wholesale,
+    # has nothing to compare against. Treating that as customised would strand
+    # it on an old renderer for good, so it is treated as ours.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    notetype["css"] = ".ro-wrap { color: red; }"
+    assert extract_fingerprint(notetype["css"]) is None, "no marker to find"
+
+    result = _installer(gw).ensure_installed(_rc())
+
+    assert result is InstallResult.UPDATED
+    assert extract_fingerprint(notetype["css"]) is not None
+
+
+def test_a_field_migration_is_persisted_even_on_a_customised_notetype():
+    # Leaving the templates alone must not also abandon the field migration --
+    # the new field is added to the dict in memory, and update_templates is the
+    # only thing that writes the dict back. It is called with the STORED
+    # strings, which is what makes persisting the fields safe.
+    #
+    # All three strings are edited, so that passing any one of them back from
+    # the freshly assembled template instead of from storage shows up here --
+    # an edit to only one would leave the other two identical either way.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    _edit_all_three(notetype)
+    notetype["flds"] = [f for f in notetype["flds"] if f["name"] != "TypeAnswer"]
+    stored = {
+        "front": notetype["tmpls"][0]["qfmt"],
+        "back": notetype["tmpls"][0]["afmt"],
+        "css": notetype["css"],
+    }
+    gw.update_calls.clear()
+
+    result = _installer(gw).ensure_installed(_rc())
+
+    assert result is InstallResult.CUSTOMISED
+    assert any(f["name"] == "TypeAnswer" for f in notetype["flds"])
+    assert gw.update_calls == [stored], "written back unchanged, not re-assembled"
+
+
+def test_a_renamed_field_is_refused_rather_than_repaired():
+    # Renaming Structures in Anki keeps every note's payload under the new name.
+    # "Repairing" it by appending an empty Structures is what the templates then
+    # render: every card in the collection loses its occlusions at once.
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    for field in notetype["flds"]:
+        if field["name"] == DEFAULT_SPEC.structures_field:
+            field["name"] = "Payload"
+    before = [f["name"] for f in notetype["flds"]]
+    gw.update_calls.clear()
+
+    result = _installer(gw).ensure_installed(_rc())
+
+    assert result is InstallResult.FIELDS_MISSING
+    assert [f["name"] for f in notetype["flds"]] == before, "no empty field appended"
+    assert gw.update_calls == [], "and nothing written back"
+
+
+def test_every_required_field_is_guarded_not_just_one():
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    pristine = [dict(f) for f in gw.store[DEFAULT_SPEC.name]["flds"]]
+
+    for name in DEFAULT_SPEC.required_fields:
+        notetype = gw.store[DEFAULT_SPEC.name]
+        notetype["flds"] = [dict(f) for f in pristine if f["name"] != name]
+
+        assert _installer(gw).ensure_installed(_rc()) is InstallResult.FIELDS_MISSING, (
+            f"removing {name} was repaired instead of refused"
+        )
+
+
+def test_a_field_a_later_version_added_is_still_appended():
+    # The other half of the same rule: TypeAnswer is not required, because a
+    # note type created before 1.1 genuinely lacks it. Refusing those would
+    # strand every older install rather than migrate it.
+    assert DEFAULT_SPEC.type_flag_field not in DEFAULT_SPEC.required_fields
+    gw = FakeModelGateway()
+    _installer(gw).ensure_installed(_rc())
+    notetype = gw.store[DEFAULT_SPEC.name]
+    notetype["flds"] = [
+        f for f in notetype["flds"] if f["name"] != DEFAULT_SPEC.type_flag_field
+    ]
+
+    result = _installer(gw).ensure_installed(_rc())
+
+    assert result is InstallResult.UPDATED
+    assert any(f["name"] == DEFAULT_SPEC.type_flag_field for f in notetype["flds"])
+
+
+def test_the_required_fields_are_all_declared_fields():
+    missing = set(DEFAULT_SPEC.required_fields) - set(DEFAULT_SPEC.fields)
+    assert not missing, f"required but never declared: {sorted(missing)}"
+
+
+def test_a_spec_demanding_a_field_it_never_creates_is_refused():
+    # Such a spec looks for a field that is never there, so it would report
+    # every untouched install as renamed and refuse to update any of them.
+    with pytest.raises(ValueError, match="required_fields"):
+        replace(DEFAULT_SPEC, required_fields=(*DEFAULT_SPEC.required_fields, "Ghost"))

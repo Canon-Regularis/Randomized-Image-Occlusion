@@ -32,6 +32,29 @@ class NoteTypeSpec:
     #: user never edits by hand, so collapsing them keeps the Add window clean;
     #: the canvas is the way in. Header/Back Extra stay expanded.
     collapsed_fields: tuple[str, ...] = ()
+    #: Fields an existing note type MUST already have. Anything in ``fields``
+    #: but not here was introduced by a later version, so a note type lacking
+    #: it is merely old and the installer may append it. A note type lacking
+    #: one of THESE cannot be old -- it was created with them -- so the field
+    #: was renamed or deleted in Anki, and appending an empty replacement
+    #: would blank that field on every note of the note type while the real
+    #: content sits in the renamed field, unreferenced.
+    required_fields: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Reject a spec that demands a field it would never create.
+
+        Such a spec refuses EVERY existing install -- the installer looks for a
+        field that is not in ``fields``, so it is never there -- and the add-on
+        would report a renamed field on a note type nobody has touched. Cheaper
+        to refuse the spec at import than to debug that.
+        """
+        unknown = tuple(n for n in self.required_fields if n not in self.fields)
+        if unknown:
+            raise ValueError(
+                f"required_fields names {unknown}, which fields does not "
+                f"declare: {self.fields}"
+            )
 
     @property
     def sort_index(self) -> int:
@@ -63,4 +86,6 @@ DEFAULT_SPEC = NoteTypeSpec(
     sort_field="Header",
     template_name="Randomized Occlusion",
     collapsed_fields=("Image", "Structures", "Ordinals", "TypeAnswer"),
+    # Everything except TypeAnswer, which 1.1 added; see ``required_fields``.
+    required_fields=("Image", "Structures", "Ordinals", "Header", "Back Extra"),
 )

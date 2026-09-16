@@ -21,6 +21,8 @@ __all__ = [
     "AssembledTemplate",
     "TemplateAssembler",
     "extract_fingerprint",
+    "fingerprint_of",
+    "strip_fingerprint",
 ]
 
 #: A manual lever to force already-installed note types to refresh. Any real
@@ -30,12 +32,42 @@ __all__ = [
 TEMPLATE_VERSION = 1
 
 _FINGERPRINT_RE = re.compile(r"ro-fingerprint:([0-9a-f]+)")
+_FINGERPRINT_LINE_RE = re.compile(r"^/\* ro-fingerprint:[0-9a-f]+ \*/\n")
 
 
 def extract_fingerprint(css: str) -> str | None:
     """Recover the fingerprint embedded in an installed note type's CSS."""
     match = _FINGERPRINT_RE.search(css or "")
     return match.group(1) if match else None
+
+
+def strip_fingerprint(css: str) -> str:
+    """The CSS body without its fingerprint comment line."""
+    return _FINGERPRINT_LINE_RE.sub("", css or "", count=1)
+
+
+def fingerprint_of(front: str, back: str, css: str) -> str:
+    """The fingerprint these three strings would carry, had we written them.
+
+    This is what lets the installer tell "exactly what we last wrote" from
+    "someone has edited it". The marker embedded in the CSS is a hash of the
+    strings it shipped with, so a fresh hash of what is *actually* stored
+    disagreeing with that marker means a change we did not make.
+    """
+    return _hash(front, back, strip_fingerprint(css))
+
+
+def _hash(front: str, back: str, css_body: str) -> str:
+    """A short hash over everything that affects the rendered card.
+
+    Hashes the *actual* assembled front, back, and CSS body (which already
+    embed the renderer JS, the config, and the colour variables), so any change,
+    including to the HTML/CSS skeleton, is detected automatically and the
+    installer refreshes already-installed note types. The CSS body is hashed
+    *without* its own fingerprint comment to avoid self-reference.
+    """
+    payload = "\n".join([str(TEMPLATE_VERSION), front, back, css_body])
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
@@ -265,15 +297,5 @@ class TemplateAssembler:
         ).rstrip("\n")
         return _CARD_CSS.replace("__RO_VARIABLES__", variables)
 
-    @staticmethod
-    def _fingerprint(front: str, back: str, css_body: str) -> str:
-        """A short hash over everything that affects the rendered card.
-
-        Hashes the *actual* assembled front, back, and CSS body (which already
-        embed the renderer JS, the config, and the colour variables), so any
-        change, including to the HTML/CSS skeleton, is detected automatically
-        and the installer refreshes already-installed note types. The CSS body
-        is hashed *without* its own fingerprint comment to avoid self-reference.
-        """
-        payload = "\n".join([str(TEMPLATE_VERSION), front, back, css_body])
-        return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    #: The module-level hash, so a stored template can be checked with it too.
+    _fingerprint = staticmethod(_hash)

@@ -16,6 +16,7 @@ from ..config.render_config import RenderConfig
 from ..domain.card_options import CardOptions
 from ..domain.structure_set import StructureSet
 from ..notetype.factory import build_installer
+from ..notetype.installer import InstallResult
 from ..notetype.spec import NoteTypeSpec
 
 __all__ = ["commit_with_undo", "prepare_content", "run_note_op"]
@@ -70,7 +71,23 @@ def prepare_content(
     Callers keep their *own* fallible work (looking up the deck, loading the note)
     before ``commit_with_undo`` for the same reason; only the write is wrapped.
     """
-    build_installer(col, spec).ensure_installed(render_config)
+    installer = build_installer(col, spec)
+    if installer.ensure_installed(render_config) is InstallResult.FIELDS_MISSING:
+        # Writing the note would put its content into fields the templates no
+        # longer reference. Setting note[name] would raise a KeyError a moment
+        # later anyway -- both ops do that before commit_with_undo, so the undo
+        # queue was never at risk -- but a KeyError names nothing a user can act
+        # on. This names the field that is gone and how to bring it back.
+        missing = installer.missing_required_fields(
+            col.models.by_name(spec.name) or {}
+        )
+        raise RuntimeError(
+            f"the note type {spec.name!r} no longer has the field "
+            f"{', '.join(repr(name) for name in missing)}. It was renamed or "
+            "removed in Tools > Manage Note Types > Fields; restoring the "
+            "original name brings the existing cards back, because their "
+            "content is still there under the new name."
+        )
     return NoteFactory(spec).build(
         image_filename=resolve_image(col),
         structures=structures,
