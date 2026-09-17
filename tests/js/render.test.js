@@ -311,22 +311,9 @@ test("resolveActiveCard finds a structure whose ordinal is not its position", ()
   assert.equal(active(4, "forward", gapped, true).activeIndex, 2);
 });
 
-test("resolveActiveCard falls back for a card its structure no longer has", () => {
-  // Anki keeps a card whose cloze has gone until Tools > Empty Cards is run, so
-  // ordinal 2 can still arrive after the structure that owned it was deleted.
-  const gapped = [{ ord: 1 }, { ord: 3 }];
-  assert.equal(active(2, "forward", gapped, true).activeIndex, 0);
-  assert.equal(active(99, "forward", gapped, true).activeIndex, 0);
-});
-
 test("resolveActiveCard ignores the coin for fixed forward/reverse directions", () => {
   assert.deepEqual(active(1, "forward", 2, false), { activeIndex: 0, cardDir: "forward" });
   assert.deepEqual(active(1, "reverse", 2, true), { activeIndex: 0, cardDir: "reverse" });
-});
-
-test("resolveActiveCard clamps out-of-range ordinals to the first structure", () => {
-  assert.deepEqual(active(0, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
-  assert.deepEqual(active(5, "forward", 2, true), { activeIndex: 0, cardDir: "forward" });
 });
 
 // ---- label wrapping: keep a long label's box within the stage --------------
@@ -455,3 +442,11 @@ test("cyclerDirections draws from its own seed stream", () => {
   }
 });
 
+
+test("indexOfOrdinal finds a structure by its number, not its position", () => {
+  const structures = [{ ord: 3 }, { ord: 7 }, { ord: 9 }];
+  assert.equal(I.indexOfOrdinal(structures, 3), 0);
+  assert.equal(I.indexOfOrdinal(structures, 7), 1);
+  assert.equal(I.indexOfOrdinal(structures, 4), -1, "a gap is not a near miss");
+  assert.equal(I.indexOfOrdinal(structures, 0), -1, "and nor is a card with no cloze");
+});

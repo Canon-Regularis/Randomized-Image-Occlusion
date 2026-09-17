@@ -12,6 +12,7 @@ from randomized_occlusion.config.config_service import (
     InMemoryConfigProvider,
 )
 from randomized_occlusion.config.defaults import DEFAULT_CONFIG
+from randomized_occlusion.config.render_config import RenderConfig
 from randomized_occlusion.resources import read_web
 
 
@@ -183,3 +184,30 @@ def test_the_zoom_range_matches_the_canvas():
     assert declared, "could not find the zoom range in marker.js"
     assert float(declared["MIN_ZOOM"]) == MIN_EDITOR_ZOOM
     assert float(declared["MAX_ZOOM"]) == MAX_EDITOR_ZOOM
+
+
+#: ``render.js``'s own copy of the behaviour defaults, as source text. Anchored
+#: on the exact declaration, so a rename fails loudly rather than silently
+#: matching nothing.
+_JS_DEFAULTS_RE = re.compile(r"\n  var DEFAULT_CONFIG = \{\n(.*?)\n  \};\n", re.DOTALL)
+
+
+def _render_js_defaults() -> dict:
+    source = read_web("review/render.js")
+    match = _JS_DEFAULTS_RE.search(source)
+    assert match, "render.js no longer declares DEFAULT_CONFIG where this test reads it"
+    body = re.sub(r"//.*", "", match.group(1))
+    return {
+        key: json.loads(raw.strip())
+        for key, raw in re.findall(r"(\w+):\s*([^,]+),", body)
+    }
+
+
+def test_the_reviewers_fallback_config_matches_the_shipped_defaults():
+    # The fourth copy of these values, and the only one nothing checked. It is
+    # what a card renders with when its #ro-config blob is missing -- a note type
+    # installed by an older version, or a template a user stripped -- which is
+    # the one path no other test covers. Drift here shows up as cards that behave
+    # differently from every setting on the config screen.
+    expected = RenderConfig.from_mapping(DEFAULT_CONFIG).behaviour()
+    assert _render_js_defaults() == expected

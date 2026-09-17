@@ -7,7 +7,7 @@ import enum
 from ..collection.gateways import ModelGateway
 from ..config.render_config import RenderConfig
 from .spec import NoteTypeSpec
-from .templates import TemplateAssembler, extract_fingerprint
+from .templates import TemplateAssembler, extract_fingerprint, fingerprint_of
 
 __all__ = ["InstallResult", "NoteTypeInstaller"]
 
@@ -16,6 +16,10 @@ class InstallResult(enum.Enum):
     CREATED = "created"
     UPDATED = "updated"
     UNCHANGED = "unchanged"
+    #: The stored template is not the one we last wrote, so it was left alone.
+    CUSTOMISED = "customised"
+    #: A field the note type was created with is gone; nothing was written.
+    FIELDS_MISSING = "fields-missing"
 
 
 class NoteTypeInstaller:
@@ -53,6 +57,16 @@ class NoteTypeInstaller:
             )
             return InstallResult.CREATED
 
+        if self.missing_required_fields(existing):
+            # A field the note type was CREATED with is gone, so this cannot be
+            # an old install waiting to be migrated. It was renamed or deleted
+            # in Anki, and the migration below would append an empty field of
+            # that name -- which the templates then render, blanking it on every
+            # note while the real content sits in the renamed field, referenced
+            # by nothing. Renaming it back restores everything, so the useful
+            # thing to do is write nothing and say so.
+            return InstallResult.FIELDS_MISSING
+
         # Migrate (all mutate ``existing`` in place):
         #   * add any fields introduced by newer versions;
         #   * collapse the machine fields so the Add window stays clean; this is
@@ -62,9 +76,25 @@ class NoteTypeInstaller:
             existing, self._spec.collapsed_fields
         )
         sort_changed = self._ensure_sort_field(existing)
-        templates_stale = (
-            extract_fingerprint(existing.get("css", "")) != template.fingerprint
-        )
+        stored_css = existing.get("css", "")
+        templates_stale = extract_fingerprint(stored_css) != template.fingerprint
+
+        if self._is_customised(existing, stored_css):
+            # Somebody has edited the card template or its CSS in Anki's Card
+            # Types screen. Rewriting it would destroy that silently -- no
+            # warning, no backup, no undo entry -- so the strings are left
+            # exactly as they are and the caller is told why. The field and
+            # collapse migrations above still have to be persisted, which is
+            # what passing the STORED strings back does.
+            if fields_changed or collapse_changed or sort_changed:
+                first = (existing.get("tmpls") or [{}])[0]
+                self._gateway.update_templates(
+                    existing,
+                    front=first.get("qfmt", ""),
+                    back=first.get("afmt", ""),
+                    css=stored_css,
+                )
+            return InstallResult.CUSTOMISED
 
         if fields_changed or collapse_changed or sort_changed or templates_stale:
             # update_templates persists the whole dict, including the mutations
@@ -79,30 +109,58 @@ class NoteTypeInstaller:
 
         return InstallResult.UNCHANGED
 
+    def missing_required_fields(self, notetype: dict) -> tuple[str, ...]:
+        """Which of the spec's required fields this note type no longer has."""
+        names = {field.get("name") for field in notetype.get("flds", [])}
+        return tuple(name for name in self._spec.required_fields if name not in names)
+
+    def _is_customised(self, notetype: dict, stored_css: str) -> bool:
+        """Whether the stored template differs from the one we last wrote.
+
+        The fingerprint in the CSS is a hash of the three strings that shipped
+        with it, so re-hashing what is actually stored and comparing settles it
+        without keeping a second copy anywhere.
+
+        A note type with no marker at all predates the fingerprint, or had its
+        CSS replaced wholesale; treated as NOT customised, because refusing to
+        update every such install would strand them on an old renderer for good.
+        """
+        marker = extract_fingerprint(stored_css)
+        if marker is None:
+            return False
+        first = (notetype.get("tmpls") or [{}])[0]
+        return (
+            fingerprint_of(first.get("qfmt", ""), first.get("afmt", ""), stored_css)
+            != marker
+        )
+
     def _ensure_sort_field(self, notetype: dict) -> bool:
         """Point ``sortf`` at the spec's sort field. True if it had to move.
 
-        ``sortf`` is an *index* into the field list, and ``ensure_fields``
-        appends, so a field that had been removed comes back at the end rather
-        than in its old slot. The stored index then refers to whatever moved into
-        that slot, and the browser sorts on the wrong field with nothing to say
-        so.
+        ``sortf`` is an *index* into the field list, so anything that moves a
+        field leaves it pointing at whatever slid into that slot, and the browser
+        sorts on the wrong field with nothing to say so. Repositioning fields in
+        Anki does exactly that, as does appending a field an older install lacks.
 
-        Located by name, not by ``spec.sort_index``: after such a migration the
-        field really is somewhere else, so re-asserting the declared index would
-        point at the wrong field just as surely as leaving it alone.
+        Located by name, not by ``spec.sort_index``: after such a move the field
+        really is somewhere else, so re-asserting the declared index would point
+        at the wrong field just as surely as leaving it alone.
 
         Checked on every run rather than only when the field list changed, so an
         install already carrying a stale index is repaired instead of staying
         that way. The cost is that a sort field chosen by hand in Anki is put
-        back, and that a *renamed* sort field is abandoned in favour of the empty
-        one ``ensure_fields`` re-adds, leaving the Browse column blank. Renaming
-        it already breaks the add-on, which addresses fields by name, so that
-        note type needs repairing either way.
+        back on the next profile open. A *renamed* sort field is not this
+        function's problem: ``ensure_installed`` refuses the whole note type
+        before reaching here, because appending the empty replacement is what
+        would blank the Browse column.
         """
         names = [field.get("name") for field in notetype.get("flds", [])]
         if self._spec.sort_field not in names:
-            return False  # ensure_fields adds it; nothing sensible to point at
+            # Unreachable for DEFAULT_SPEC, whose sort field is required, so a
+            # note type lacking it was refused above. Kept for a spec that does
+            # NOT require its sort field: there the field really can be absent,
+            # and index() below would raise rather than skip.
+            return False
         wanted = names.index(self._spec.sort_field)
         if notetype.get("sortf") == wanted:
             return False

@@ -105,8 +105,11 @@ jobs:
     name: mutation testing
     runs-on: ubuntu-latest
     # The only job whose cost grows with the catalogue: one child process per
-    # mutation, ~7-10 min for 185 on a 2-vCPU runner. Headroom, not a target.
-    timeout-minutes: 25
+    # mutation, and each reviewer mutation runs five JS suites. The number of
+    # mutations has more than doubled since this was last set, so the figure that
+    # used to live here went stale without anyone noticing. Headroom, not a
+    # target: if it ever trips, measure the run before nudging it.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -134,6 +137,35 @@ jobs:
           python-version: "3.10"
       - name: Build the add-on (stdlib only)
         run: python build.py
+      - name: Check the artefact is installable as it stands
+        # Without this the job could only fail by crashing: it built an archive,
+        # uploaded it, and never looked inside. These are properties of the file
+        # actually published, which the pytest job cannot see -- it builds its own
+        # copy into a temp directory.
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+
+          names = zipfile.ZipFile('dist/randomized_occlusion.ankiaddon').namelist()
+          # An .ankiaddon is unpacked into the add-on folder as-is, so anything
+          # but a flat root (or an escaping path) installs into the wrong place.
+          assert '__init__.py' in names, 'no __init__.py at the archive root'
+          assert 'manifest.json' in names, 'no manifest.json at the archive root'
+          for name in names:
+              assert not name.startswith('/'), name
+              assert '..' not in name.split('/'), name
+          strays = [n for n in names
+                    if n.startswith('user_files/') and n != 'user_files/.gitkeep']
+          assert not strays, f'per-profile state would ship: {strays}'
+
+          version = {}
+          exec(Path('src/randomized_occlusion/_version.py').read_text(), version)
+          with zipfile.ZipFile('dist/randomized_occlusion.ankiaddon') as archive:
+              manifest = json.loads(archive.read('manifest.json'))
+          assert manifest['human_version'] == version['__version__'], manifest
+          print(f"{len(names)} files, v{manifest['human_version']}")
+          PY
       - name: Upload the .ankiaddon
         uses: actions/upload-artifact@v4
         with:

@@ -43,6 +43,7 @@ _CUSTOM = replace(
     type_flag_field="TypeFlag",
     sort_field="Title",
     collapsed_fields=("Pic", "Payload"),
+    required_fields=("Pic", "Payload", "Ords", "Title", "Extra"),
 )
 
 

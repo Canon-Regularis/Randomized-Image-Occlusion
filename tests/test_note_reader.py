@@ -411,6 +411,52 @@ def test_an_out_of_range_number_is_reported_as_unreadable():
             reader.read({"Structures": encode_json_b64(json.loads(raw))})
 
 
+def test_a_nonsense_high_water_mark_reads_as_absent():
+    # `nextOrd` only ever goes up, so ~499 add-then-delete cycles on one note --
+    # or any corruption -- can push it past what Anki can address. Carried, it
+    # is read, written straight back, and then refuses every new structure for
+    # the life of the note. Discarding it costs at worst the reuse of an ordinal
+    # freed earlier on an already-corrupt note.
+    from randomized_occlusion.domain.structure_set import MAX_ORDINAL
+
+    structures = _structures()
+    highest = max(s.ordinal for s in structures.ordered)
+    # MAX_ORDINAL + 1 is the interesting one: it is a legitimate mark for a FULL
+    # note (nothing left to hand out), so an off-by-one here kept it on a note
+    # with room to spare and bricked it exactly as before.
+    for stored in (MAX_ORDINAL + 1, MAX_ORDINAL + 2, 99999, -3, "nonsense", None, [1]):
+        payload = encode_json_b64(
+            {
+                "v": 2,
+                "mode": "multi",
+                "direction": "forward",
+                "nextOrd": stored,
+                "structures": [s.to_dict() for s in structures.ordered],
+            }
+        )
+        loaded = NoteReader(DEFAULT_SPEC).read({"Structures": payload})
+        assert loaded.structures.next_ordinal == highest + 1, (
+            f"nextOrd={stored!r} was carried instead of discarded"
+        )
+
+
+def test_a_usable_high_water_mark_is_kept():
+    from randomized_occlusion.domain.structure_set import MAX_ORDINAL
+
+    structures = _structures()
+    payload = encode_json_b64(
+        {
+            "v": 2,
+            "mode": "multi",
+            "direction": "forward",
+            "nextOrd": MAX_ORDINAL,
+            "structures": [s.to_dict() for s in structures.ordered],
+        }
+    )
+    loaded = NoteReader(DEFAULT_SPEC).read({"Structures": payload})
+    assert loaded.structures.next_ordinal == MAX_ORDINAL
+
+
 def test_a_readable_validation_message_survives():
     # StructureSet says "ordinals must be exactly 1..N with no gaps or
     # duplicates; got [1, 3]", which a user can act on. Replacing every failure

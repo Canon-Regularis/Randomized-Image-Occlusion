@@ -432,7 +432,10 @@ function buildCard(opts) {
   const document = {
     getElementById: (id) => ids.get(id) || null,
     querySelector: (sel) => {
-      if (sel === "#ro-ordinal .cloze") return clozeSpan;
+      // `noOrdinalSpan` is a client that renders no active cloze span at all,
+      // so render.js cannot tell which card it is showing. That is not the same
+      // as an ordinal matching no structure, and must not be treated as one.
+      if (sel === "#ro-ordinal .cloze") return o.noOrdinalSpan ? null : clozeSpan;
       if (sel === ".ro-type") return typeBox;
       return null;
     },

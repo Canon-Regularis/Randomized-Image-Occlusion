@@ -13,6 +13,8 @@ from randomized_occlusion.notetype.spec import DEFAULT_SPEC
 from randomized_occlusion.notetype.templates import (
     TemplateAssembler,
     extract_fingerprint,
+    fingerprint_of,
+    strip_fingerprint,
 )
 from randomized_occlusion.resources import read_web
 
@@ -240,3 +242,38 @@ def test_web_assets_are_decoded_as_utf8():
     # read_text translates newlines; read_bytes does not, and the tree is CRLF.
     expected = raw.decode("utf-8").replace(chr(13) + chr(10), chr(10))
     assert read_web("review/render.js") == expected
+
+
+def test_stripping_the_fingerprint_leaves_the_body():
+    css = _assembler().css(RC)
+    body = strip_fingerprint(css)
+    assert extract_fingerprint(body) is None
+    assert "--ro-accent:" in body, "only the marker line goes"
+
+
+def test_stripping_a_css_without_a_marker_changes_nothing():
+    assert strip_fingerprint(".a { color: red; }") == ".a { color: red; }"
+
+
+def test_what_we_wrote_hashes_back_to_its_own_marker():
+    # This is the equality the installer's customisation check rests on: hash
+    # the three strings as stored, and you get the marker they were stamped
+    # with. If it ever stopped holding, every install would read as customised
+    # and nothing would upgrade again.
+    assembler = _assembler()
+    template = assembler.assemble(RC)
+    assert (
+        fingerprint_of(template.front, template.back, template.css)
+        == template.fingerprint
+    )
+
+
+def test_an_edited_template_no_longer_hashes_to_its_marker():
+    assembler = _assembler()
+    template = assembler.assemble(RC)
+    for front, back, css in (
+        (template.front + "x", template.back, template.css),
+        (template.front, template.back + "x", template.css),
+        (template.front, template.back, template.css + "x"),
+    ):
+        assert fingerprint_of(front, back, css) != template.fingerprint

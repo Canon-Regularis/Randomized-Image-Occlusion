@@ -1191,3 +1191,80 @@ test("a repaint keeps its place when session storage is full", () => {
   assert.ok(near(second.cx, first.cx, 1e-9) && near(second.cy, first.cy, 1e-9),
     `box moved from (${first.cx}, ${first.cy}) to (${second.cx}, ${second.cy})`);
 });
+
+// --- cards orphaned by a deletion -------------------------------------------
+// Anki keeps the card of a deleted structure until Tools > Empty Cards is run.
+// Editing a note no longer renumbers the survivors (that would move review
+// history onto another structure), so these gaps are deliberate and common.
+//
+// Verified against a real collection: such a card has NO active cloze span --
+// Anki has no cloze to make active -- and Anki prints its own localised "No
+// cloze N found on card ... use the Empty Cards tool" beneath our template. So
+// the renderer's job is only to stop drawing over that explanation.
+
+test("a card orphaned by a deletion draws nothing over the image", () => {
+  const survivors = STRUCTURES.filter((s) => s.ord !== 2);
+  const card = buildCard({ structures: survivors, noOrdinalSpan: true, seed: 7 });
+
+  card.render(false);
+
+  assert.equal(boxesOf(card.svg).length, 0, "it drew a card-1 prompt box anyway");
+  assert.equal(arrowsOf(card.svg).length, 0);
+  assert.equal(dotsOf(card.svg).length, 0);
+  assert.equal(card.svg.style.display, "none", "the overlay is taken down");
+});
+
+test("an ordinal that matches no structure also draws nothing", () => {
+  // The payload and the cloze field disagree, which a hand-edited note can do.
+  const survivors = STRUCTURES.filter((s) => s.ord !== 2);
+  const card = buildCard({ structures: survivors, activeOrdinal: 2, seed: 7 });
+
+  card.render(false);
+
+  assert.equal(boxesOf(card.svg).length, 0);
+  assert.equal(card.svg.style.display, "none");
+});
+
+test("a repaint keeps an undrawable card blank", () => {
+  // render() runs again on every resize, so the second pass must reach the
+  // same decision as the first rather than drawing over it.
+  const survivors = STRUCTURES.filter((s) => s.ord !== 2);
+  const card = buildCard({ structures: survivors, activeOrdinal: 2, seed: 7 });
+
+  card.render(false);
+  card.render(false);
+
+  assert.equal(card.svg.style.display, "none");
+  assert.equal(boxesOf(card.svg).length, 0, "the repaint drew the card anyway");
+});
+
+test("the surviving cards of the same note are untouched by that", () => {
+  const survivors = STRUCTURES.filter((s) => s.ord !== 2);
+  const card = buildCard({ structures: survivors, activeOrdinal: 3, seed: 7 });
+
+  card.render(false);
+
+  assert.deepEqual(
+    boxesOf(card.svg).map((b) => b.text),
+    [PROMPT],
+    "a forward question draws exactly its own prompt box",
+  );
+  assert.notEqual(card.svg.style.display, "none");
+});
+
+test("single-card mode is never blanked by a deletion", () => {
+  // Its cloze is always c1 whatever the survivors are numbered, so the ordinal
+  // legitimately matches nothing once the first structure has been deleted.
+  const survivors = STRUCTURES.filter((s) => s.ord !== 1);
+  const card = buildCard({
+    structures: survivors,
+    mode: "single",
+    activeOrdinal: 1,
+    seed: 7,
+  });
+
+  card.render(false);
+
+  assert.notEqual(card.svg.style.display, "none", "a good single card was blanked");
+  assert.ok(boxesOf(card.svg).length > 0);
+});

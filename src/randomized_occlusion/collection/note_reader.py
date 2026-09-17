@@ -123,7 +123,13 @@ def _field_text(value: str) -> str:
 
 
 def _stored_ordinal(value: Any) -> int:
-    """A stored high-water mark, or 0 when the note carries none."""
+    """A stored high-water mark, or 0 when the note carries none.
+
+    Only the lower bound is checked here. ``StructureSet`` discards a mark past
+    the ceiling as well -- one that names a card Anki cannot address would
+    otherwise be read, written straight back, and refuse every new structure for
+    the life of the note -- so repeating that check here would be dead code.
+    """
     try:
         ordinal = int(value)
     except (TypeError, ValueError, OverflowError):

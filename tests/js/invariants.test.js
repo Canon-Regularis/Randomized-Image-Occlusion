@@ -48,9 +48,35 @@ test("every pycmd message marker.js sends is routed by the Python bridge", () =>
   const js = fs.readFileSync(MARKER_JS, "utf8");
   const bridge = fs.readFileSync(BRIDGE_PY, "utf8");
   const sent = [...new Set([...js.matchAll(/send\("ro:([a-z]+)/g)].map((m) => m[1]))];
-  assert.ok(sent.length >= 4, `only found ${sent.length} pycmd sends; has send() been renamed?`);
+  // The explicit set, not a count: with `>= 4` against the five messages
+  // marker.js sends, deleting any one of them still passed.
+  assert.deepEqual(
+    sent.slice().sort(),
+    ["broken", "count", "ready", "textfocus", "zoom"],
+    "the set of pycmd messages changed; update the bridge and this list",
+  );
   const unrouted = sent.filter(
     (name) => !bridge.includes(`"${name}"`) && !bridge.includes(`"${name}:"`),
   );
   assert.deepEqual(unrouted, [], "marker.js sends messages bridge.py does not handle");
+});
+
+test("marker.js documents every pycmd message it actually sends", () => {
+  // The header comment is the only place the protocol is written down, and a
+  // comment nothing checks drifts: `ro:broken` was added and never listed, so
+  // the record said four messages where the code sent five.
+  const js = fs.readFileSync(MARKER_JS, "utf8");
+  const sent = new Set([...js.matchAll(/send\("ro:([a-z]+)/g)].map((m) => m[1]));
+  // `pycmd("ro:...")` appears only in that block; the code itself calls send().
+  const documented = new Set([...js.matchAll(/pycmd\("ro:([a-z]+)/g)].map((m) => m[1]));
+  assert.deepEqual(
+    [...sent].filter((name) => !documented.has(name)).sort(),
+    [],
+    "marker.js sends messages its own protocol block does not list",
+  );
+  assert.deepEqual(
+    [...documented].filter((name) => !sent.has(name)).sort(),
+    [],
+    "marker.js documents messages it no longer sends",
+  );
 });

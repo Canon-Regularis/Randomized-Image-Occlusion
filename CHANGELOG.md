@@ -5,6 +5,123 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0]
+
+### Upgrading
+- **If you edited this note type's card template or its styling** (Tools > Manage
+  Note Types > Cards), this release leaves your version alone rather than
+  overwriting it. Earlier versions replaced the template and the CSS outright on
+  the next profile open, with no warning and nothing to undo. The cost of being
+  left alone is that your cards keep the older renderer, so none of the reviewer
+  fixes below reach them: copy your changes out, delete the customisation, and
+  let the add-on reinstall the template to get both. One gap to know about — the
+  check relies on a comment the add-on writes into the CSS, so if you replaced
+  the whole Styling box and removed that comment, your version is still
+  overwritten.
+- **If you renamed or deleted one of the note type's fields** in Anki, the add-on
+  now leaves the note type alone instead of "repairing" it by adding an empty
+  field of the original name. That repair was silent and it blanked that field on
+  every card of the note type at once. Renaming the field back restores
+  everything; the content was never lost. You will see this the next time you add
+  or edit a card, which fails with a message naming the field — at profile open
+  it is only written to Anki's debug console.
+
+### Added
+- **Space, Return and Enter now drive a single-card cycle.** Anki binds those keys
+  to "show answer" on the main window, so they never reached the card and one
+  press abandoned the cycle halfway through. They now step the cycle while a
+  single-card question is on screen, and behave exactly as before everywhere else
+  — once the cycle is finished, the next press goes back to Anki so the card can
+  still be answered.
+
+### Changed
+- **A note can hold at most 500 structures.** Anki cannot address more than that
+  many cloze deletions on one note — beyond 500 it collapses them onto a single
+  card — so notes above the limit were quietly producing cards that could never
+  work. Such a note now refuses to open in the add-on's editor and says why,
+  rather than appearing to save and silently doing nothing useful. Remove some
+  structures in Anki's own note editor to bring it back under the limit.
+- The `min_arrow_fraction` and `max_placement_attempts` settings document the
+  range they are limited to, which they always had and never mentioned.
+- Packaging no longer picks up per-profile files that Anki writes beside the
+  add-on, so a build made from a working checkout cannot ship somebody's own
+  state.
+
+### Fixed
+- **The add-on now loads on Anki 23.10 through 25.06 at all.** It used a Python
+  3.10 feature while declaring 23.10 as its minimum, so on every Anki between
+  23.10 and 25.06 — all of which ship Python 3.9 — it failed at import and never
+  appeared. This was true for the project's whole history.
+- **Cards now render correctly on AnkiDroid and AnkiMobile.** The card carries its
+  own renderer so it works on phones with no add-on installed, but it used
+  features an older WebView does not have: on those devices the card could come up
+  as a bare image, and where it did draw, **every arrowhead pointed due east**
+  instead of at its structure. It also no longer lays the answer out differently
+  from the question when the client opens the two sides in separate web views.
+- **Editing a note no longer moves your review history onto a different
+  structure.** Deleting one structure of several used to renumber the survivors,
+  and a card's number *is* its identity to Anki: the card that had been asking
+  about the aorta silently started asking about something else, keeping the
+  interval, ease and history it had earned on the old one. Numbers are now kept
+  as they are and the gaps left behind are simply left. Anki keeps the deleted
+  structure's card until **Tools > Empty Cards** is run, and already tells you so
+  on that card; the add-on no longer draws a prompt box and arrow over the top of
+  that message, which had made the leftover card look like an ordinary one.
+- **A label containing `<` no longer breaks every other card of its note.** Angle
+  brackets in a structure's name were written into the card as markup, which
+  swallowed the rest of the note. The same applied to **Header** and **Back
+  extra**, where everything after a `<` disappeared.
+- **A label ending in `}` is now graded correctly.** It used to make the card's
+  cloze end early, so the typed answer was compared against a truncated label and
+  could never be right, on every review, for the life of the note.
+- **A question side can no longer be solved by elimination.** When the other
+  structures were shown as context, each of them got an arrow pointing at it,
+  leaving the structure you were being asked about as the only marked spot with
+  no arrow — so it could be picked out without identifying anything. The same
+  held at every step of a single-card cycle.
+- **Turning the dots off now turns them off.** `show_target_dot` and
+  `show_decoy_dots` were ignored when context labels were on, and throughout a
+  single-card cycle: the dots were drawn whatever the settings said.
+- **A card whose image loads slowly no longer comes up blank.** The drawing pass
+  ran before the picture had a size, drew nothing, and never tried again.
+- **Boxes no longer hang off the edge of the image**, and an arrow pointing at a
+  structure that falls inside its own prompt box is no longer drawn backwards and
+  hidden underneath it. In a single-card cycle the boxes also stay put when you
+  flip the card, instead of moving between the question and the answer.
+- **Header and Back extra keep their formatting.** Text you had styled in those
+  fields is preserved when you reopen a note, and removing the formatting now
+  works — previously an edit that left the plain text unchanged was discarded and
+  the old markup put back, so formatting could not be taken off at all.
+- **A multi-line Back extra stays multi-line** on the answer side, instead of
+  running together into a single paragraph.
+- **A single-card cycle can be finished from the keyboard.** Pressing Enter in the
+  type-in box did nothing once the answer was shown, and the Next button could not
+  be reached by tabbing.
+- **The editor closes when the collection it belongs to does.** Left open across a
+  profile switch, a Save wrote the note, its image and any new deck into whichever
+  profile had since been loaded — and still reported success.
+- **A failed save no longer freezes the editor.** The error is reported in full
+  and you can try again, where before the window was left with only Cancel
+  working. A save that finishes after you press Cancel now says so, instead of
+  staying silent and inviting a duplicate.
+- **An image that cannot be displayed now says so** and disables Save, instead of
+  leaving a blank canvas that accepts markers which cannot go anywhere.
+- **Pasting or loading an image accepts more formats.** `.jfif` and `.jpe` (how
+  Windows names some copied JPEGs), plus `.avif` and `.ico`, which Anki's own
+  editor already took. This covers image *files* you copy or pick; an image copied
+  as raw pixels was already handled.
+- **The configuration screen renders.** Anki's add-on settings showed the raw
+  source of the help text — a table of every setting — instead of the table.
+- **Filtered decks are no longer offered** as somewhere to add cards. They cannot
+  receive new cards, so Anki quietly redirected them to Default and the cards were
+  not where you chose to put them.
+- **A remembered deck that has since been deleted** no longer leaves the deck box
+  showing one thing while the cards go somewhere else.
+- Colours in the configuration are validated properly: a 5- or 7-digit hex value
+  used to pass and then be ignored by the card, leaving the default with no
+  explanation. `show_context_labels` set to `"false"` is now honoured when new
+  notes are created, not only when they are displayed.
+
 ## [1.2.0]
 
 ### Added
@@ -230,6 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add-on required on the device, since the renderer is baked into the card.
 - Configurable colours, minimum arrow length, and default study mode.
 
+[1.3.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.2.0
 [1.1.1]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Canon-Regularis/Randomized-Image-Occlusion/releases/tag/v1.1.0
